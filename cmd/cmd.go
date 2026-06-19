@@ -12,6 +12,7 @@ import (
 	"github.com/clpi/down/cmd/list"
 	logc "github.com/clpi/down/cmd/log"
 	lsc "github.com/clpi/down/cmd/lsp"
+	"github.com/clpi/down/cmd/mcp"
 	"github.com/clpi/down/cmd/new"
 	"github.com/clpi/down/cmd/note"
 	"github.com/clpi/down/cmd/profile"
@@ -57,6 +58,7 @@ func Configure() {
 	Down.AddCommand(&Snippet)
 	Down.AddCommand(&Template)
 	Down.AddCommand(&profile.Profile)
+	Down.AddCommand(&mcp.Mcp)
 }
 
 func Run(c *context.Context) {
