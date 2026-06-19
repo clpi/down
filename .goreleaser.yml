@@ -1,0 +1,84 @@
+version: 2
+
+project_name: down.lsp
+
+env:
+  - GO111MODULE=on
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+    - go generate ./
+
+archives:
+  - format: binary
+
+release:
+  draft: true
+  replace_existing_draft: true
+  make_latest: true
+  mode: replace
+  skip_upload: false
+
+changelog:
+  disable: true
+
+checksum:
+  disable: true
+
+milestones:
+  - close: true
+
+brews:
+  - repository:
+      owner: "clpi"
+      name: "down.lsp"
+    name: down.lsp
+    commit_author:
+      name: Chris Pecunies
+      email: chris@pecunies.com
+    homepage: clp.is
+    description: Dev-tailored advanced markdown note-taking environment and language server.
+
+builds:
+  - main: /bin/down.lsp
+    binary: down.lsp
+    goos:
+      - linux
+      - darwin
+      - windows
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - window
+      - darwin
+      - freebsd
+      - netbsd
+      - openbsd
+    goarch:
+      - "386"
+      - arm
+      - amd64
+      - arm64
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: freebsd
+        goarch: arm
+      - goos: freebsd
+        goarch: arm64
+      - goos: netbsd
+        goarch: arm
+      - goos: netbsd
+        goarch: arm64
+      - goos: openbsd
+        goarch: arm
+      - goos: openbsd
+        goarch: arm64
+      - goos: windows
+        goarch: arm
