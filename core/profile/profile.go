@@ -110,8 +110,8 @@ func DefaultAISettings() AISettings {
 
 // NewProfile creates a new user profile with defaults.
 func NewProfile(name string) *Profile {
-	home, _ := os.UserHomeDir()
-	storePath := filepath.Join(home, ".down", "profile.json")
+	configDir, _ := os.UserConfigDir()
+	storePath := filepath.Join(configDir, "down", "profile.json")
 
 	return &Profile{
 		ID:          generateID(name),
@@ -130,12 +130,11 @@ func NewProfile(name string) *Profile {
 
 // LoadProfile loads a profile from the default location.
 func LoadProfile() (*Profile, error) {
-	home, err := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("cannot determine home directory: %w", err)
+		return nil, fmt.Errorf("cannot determine config directory: %w", err)
 	}
-
-	storePath := filepath.Join(home, ".down", "profile.json")
+	storePath := filepath.Join(configDir, "down", "profile.json")
 	return LoadProfileFrom(storePath)
 }
 

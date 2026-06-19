@@ -130,6 +130,8 @@ func (s *State) Command(c *glsp.Context, p *protocol.ExecuteCommandParams) (any,
 		return s.InlineComplete(nil, p)
 	case "down.backlinks":
 		return s.cmdBacklinks(args)
+	case "down.task.list":
+		return s.ComputeTasks(), nil
 
 	default:
 	}
@@ -401,15 +403,12 @@ func (s *State) cmdAIFineTune() (any, error) {
 
 func (s *State) cmdBacklinks(args []interface{}) (any, error) {
 	if len(args) < 1 {
-		return "Usage: down.backlinks <documentURI>", nil
+		return nil, fmt.Errorf("Usage: down.backlinks <documentURI>")
 	}
 	uri, ok := args[0].(string)
 	if !ok {
-		return "URI must be a string", nil
+		return nil, fmt.Errorf("URI must be a string")
 	}
 	result := s.ComputeBacklinks(uri)
-	if result.Count == 0 {
-		return fmt.Sprintf("No backlinks found for %s", result.Title), nil
-	}
-	return s.BacklinksSummary(uri), nil
+	return result, nil
 }
