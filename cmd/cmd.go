@@ -7,6 +7,7 @@ import (
     "github.com/clpi/down/cmd/add"
     "github.com/clpi/down/cmd/compact"
     "github.com/clpi/down/cmd/config"
+    downctx "github.com/clpi/down/cmd/context"
     "github.com/clpi/down/cmd/delete"
     "github.com/clpi/down/cmd/export"
     "github.com/clpi/down/cmd/find"
@@ -15,6 +16,7 @@ import (
     logc "github.com/clpi/down/cmd/log"
     lsc "github.com/clpi/down/cmd/lsp"
     "github.com/clpi/down/cmd/mcp"
+    "github.com/clpi/down/cmd/memory"
     "github.com/clpi/down/cmd/new"
     "github.com/clpi/down/cmd/note"
     "github.com/clpi/down/cmd/profile"
@@ -67,6 +69,8 @@ func Configure() {
     Down.AddCommand(&skills.Skills)
     Down.AddCommand(&add.Add)
     Down.AddCommand(&remove.Remove)
+    Down.AddCommand(&memory.Memory)
+    Down.AddCommand(&downctx.Context)
 }
 
 func Run(c *context.Context) {

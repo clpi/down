@@ -12,28 +12,37 @@ var (
 	uhome, uhomerr      = os.UserHomeDir()
 	uconfig, uconfigerr = os.UserConfigDir()
 	ucache, ucacheerr   = os.UserCacheDir()
+	udata, udataerr     = func() (string, error) {
+		d := os.Getenv("XDG_DATA_HOME")
+		if d != "" {
+			return d, nil
+		}
+		h, _ := os.UserHomeDir()
+		return path.Join(h, ".local", "share"), nil
+	}()
 	utemp               = os.TempDir()
 )
 var (
-	lsp       = path.Join(uconfig, "down/", "lsp/")
-	data      = path.Join(uconfig, "down/", "data/")
-	dump      = path.Join(uconfig, "down/", "log/")
+	lsp       = path.Join(udata, "down/", "lsp/")
+	data      = path.Join(udata, "down/", "data/")
+	dump      = path.Join(ucache, "down/", "log/")
 	home      = path.Join(uconfig, "down/")
-	conf      = path.Join(uconfig, "down/")
-	cache     = path.Join(ucache, "down/")
-	llog      = path.Join(utemp, "down/")
+	config    = path.Join(uconfig, "down/")
+	datadir   = path.Join(udata, "down/")
+	cachedir  = path.Join(ucache, "down/")
+	logdir    = path.Join(ucache, "down/", "log/")
 	tmp       = path.Join(utemp, "down/")
-	ws        = path.Join(home, "workspace/")
+	ws        = path.Join(datadir, "workspace/")
 	workspace = ws
-	config    = path.Join(conf, "downrc")
-	doc       = path.Join(conf, "down.dd")
+	confFile  = path.Join(config, "downrc")
+	doc       = path.Join(config, "down.dd")
 )
 
 var (
 	wsDown = path.Join(ws)
 )
 var (
-	confRoot = path.Join(conf, "down.toml")
+	confRoot = path.Join(config, "down.toml")
 )
 
 // type Map map[string]map[string]any
@@ -88,15 +97,15 @@ func Workspace(w string) string {
 	println("WOKRSP", strings.Join([]string{os.Getenv("DOWN_WORKSPACES"), w}, ":"))
 	// os.Setenv("DOWN_WORKSPACES", strings.Join([]string{other, w}, ":"))
 	// println("WOKRSP", strings.Join([]string{other, w}, ":"))
-	os.Setenv("DOOM_CACHE_DIR", cache)
+	os.Setenv("DOOM_CACHE_DIR", cachedir)
 	os.Setenv("DOOM_CONFIG_DIR", config)
-	os.Setenv("DOOM_LOG_DIR", llog)
-	os.Setenv("DOOM_DATA_DIR", path.Join(home, "data"))
-	os.Setenv("DOOM_RUNTIME_DIR", path.Join(home, "rt"))
+	os.Setenv("DOOM_LOG_DIR", logdir)
+	os.Setenv("DOOM_DATA_DIR", path.Join(datadir, "data"))
+	os.Setenv("DOOM_RUNTIME_DIR", path.Join(datadir, "rt"))
 	os.MkdirAll(config, 0777)
-	os.MkdirAll(cache, 0777)
+	os.MkdirAll(cachedir, 0777)
 	os.MkdirAll(tmp, 0777)
-	os.MkdirAll(llog, 07777)
+	os.MkdirAll(logdir, 07777)
 	wd := path.Join(wr, ".down/")
 	os.MkdirAll(wd, 07777)
 
