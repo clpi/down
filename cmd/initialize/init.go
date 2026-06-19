@@ -27,7 +27,7 @@ func initWorkspace(root, name string, wiki bool) {
 	downDir := filepath.Join(root, ".down")
 	os.MkdirAll(downDir, 0755)
 
-	for _, sub := range []string{"data", "knowledge", "memory", "context", "vector"} {
+	for _, sub := range []string{"data", "knowledge", "memory", "context", "vector", "git"} {
 		os.MkdirAll(filepath.Join(downDir, sub), 0755)
 	}
 

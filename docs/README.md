@@ -1,6 +1,6 @@
-# down.lsp Documentation
+# down LSP Documentation
 
-**down.lsp** is a Language Server Protocol (LSP) implementation for markdown-based note-taking and knowledge management. It provides intelligent completions, semantic analysis, knowledge graph construction, AI-powered writing assistance, and workspace management.
+The `down lsp` command is a Language Server Protocol (LSP) implementation for markdown-based note-taking and knowledge management. It provides intelligent completions, semantic analysis, knowledge graph construction, AI-powered writing assistance, and workspace management.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@
 ## Architecture
 
 ```
-down.lsp/
+down/
 ├── cmd/             # CLI commands (cobra)
 ├── core/            # Core domain types
 │   ├── config/      # Global configuration
@@ -44,7 +44,7 @@ down.lsp/
 ### Installation
 
 ```bash
-go install github.com/clpi/down.lsp@latest
+go install github.com/clpi/down@latest
 ```
 
 ### Running the LSP Server
@@ -240,7 +240,7 @@ Set `DOWN_AI_PROVIDER` to explicitly select a provider, or let it auto-detect.
 
 ### Multi-Workspace Support
 
-down.lsp supports multiple simultaneous workspaces with independent settings.
+The `down lsp` server supports multiple simultaneous workspaces with independent settings.
 
 ### Workspace Structure
 
@@ -361,7 +361,7 @@ Global config in `~/.down/config.json`.
 
 ### Local Embeddings
 
-down.lsp includes a local bag-of-words embedding model that works offline:
+The `down lsp` server includes a local bag-of-words embedding model that works offline:
 
 - Hash-based dimensionality reduction (default: 384 dimensions)
 - TF-IDF weighting from corpus statistics

@@ -34,18 +34,28 @@ var (
 )
 
 func findDownDir(root string) string {
-	for dir := root; dir != "" && dir != "/" && filepath.Dir(dir) != dir; {
+	if root == "" {
+		root = "."
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	for dir := root; ; {
 		dd := filepath.Join(dir, ".down")
-		if info, err := os.Stat(dd); err == nil && info.IsDir() { return dd }
+		if info, err := os.Stat(dd); err == nil && info.IsDir() {
+			return dd
+		}
 		parent := filepath.Dir(dir)
-		if parent == dir { break }
+		if parent == dir || dir == "" || dir == "/" {
+			break
+		}
 		dir = parent
 	}
 	return ""
 }
 
 func ensureDirs(downDir string) {
-	for _, d := range []string{"data", "knowledge", "memory", "context", "vector"} {
+	for _, d := range []string{"data", "knowledge", "memory", "context", "vector", "git"} {
 		os.MkdirAll(filepath.Join(downDir, d), 0755)
 	}
 }
@@ -204,7 +214,7 @@ Updates:
   vector/       Regenerates embeddings for changed files
   data/         Pulls fresh content for URL sources
   
-Runs sub-syncs in order: data → knowledge → memory → context → vector → web`,
+Runs sub-syncs in order: data → knowledge → memory → context → vector → web → git`,
 	Run: func(cmd *cobra.Command, args []string) {
 		root, _ := os.Getwd()
 		downDir := findDownDir(root)
@@ -345,4 +355,5 @@ func init() {
 	Sync.AddCommand(&syncContext)
 	Sync.AddCommand(&syncVector)
 	Sync.AddCommand(&syncWeb)
+	initGit()
 }

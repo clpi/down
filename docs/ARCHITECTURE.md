@@ -2,7 +2,7 @@
 
 ## Overview
 
-down.lsp follows a layered architecture with clear separation between:
+The `down lsp` command follows a layered architecture with clear separation between:
 
 1. **CLI Layer** (`cmd/`) — User-facing commands via cobra
 2. **LSP Layer** (`lsp/`) — Language Server Protocol implementation

@@ -32,7 +32,7 @@ var (
 		},
 	}
 	serveR = func(cmd *cobra.Command, args []string) {
-		lsp, err := tls.NewServer()
+		lsp, err := ls.NewServer()
 		if err != nil {
 			log.Fatal(err)
 		}
