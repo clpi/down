@@ -85,6 +85,22 @@ func loadFile(state *handler.State, path string) (string, bool) {
 	return uri, true
 }
 
+// ensureFile returns the file URI for path, loading it into state only when it
+// is not already present. This avoids re-running ExtractFromDocument (which
+// clears the document's byDoc index) on a file that loadWorkspace already
+// indexed, which would otherwise drop the entity→document mapping.
+func ensureFile(state *handler.State, path string) (string, bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	uri := "file://" + abs
+	if _, ok := state.Documents[uri]; ok {
+		return uri, true
+	}
+	return loadFile(state, path)
+}
+
 // resolveRoot returns the workspace to scan: an explicit --root, the nearest
 // ancestor containing a .down/ directory, or the current directory.
 func resolveRoot() string {

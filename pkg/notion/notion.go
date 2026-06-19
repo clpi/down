@@ -426,7 +426,10 @@ func (c *Client) UploadFileBytes(uploadURL string, data []byte, contentType stri
 	return nil
 }
 
-// normalizeID strips dashes from UUIDs and lowercases.
-func normalizeID(id string) string {
+// NormalizeID strips dashes from UUIDs and lowercases.
+func NormalizeID(id string) string {
 	return strings.ToLower(strings.ReplaceAll(id, "-", ""))
 }
+
+// normalizeID is kept as an unexported alias for internal use.
+func normalizeID(id string) string { return NormalizeID(id) }

@@ -30,10 +30,15 @@ var (
 	reEmbed          = regexp.MustCompile(`!\[\[([^\]]+)\]\]`)
 	reHorizontalRule = regexp.MustCompile(`^(---+|\*\*\*+|___+)\s*$`)
 	reListMarker     = regexp.MustCompile(`^(\s*)([-*+]|\d+\.)\s`)
+	wordRe           = regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9_-]{1,})\b`)
 )
 
 // Tokenize scans a markdown document and returns sorted semantic tokens.
 func Tokenize(text string) []Token {
+	return TokenizeWithGraph(text, nil)
+}
+
+func TokenizeWithGraph(text string, knownEntities map[string]bool) []Token {
 	lines := strings.Split(text, "\n")
 	var tokens []Token
 
@@ -364,6 +369,29 @@ func Tokenize(text string) []Token {
 		}
 		return tokens[i].StartChar < tokens[j].StartChar
 	})
+
+	// Add knowledge graph entity tokens
+	if knownEntities != nil && len(knownEntities) > 0 {
+		for lineIdx, line := range lines {
+			// Split into words and check against known entities
+			wordRe.FindAllStringIndex(line, -1)
+			words := wordRe.FindAllStringSubmatchIndex(line, -1)
+			for _, w := range words {
+				if len(w) >= 4 {
+					word := line[w[2]:w[3]]
+					if knownEntities[word] || knownEntities[strings.ToLower(word)] {
+						tokens = append(tokens, Token{
+							Line:      lineIdx,
+							StartChar: w[2],
+							Length:    w[3] - w[2],
+							Type:      TokEntity,
+							Modifiers: ModDeclaration,
+						})
+					}
+				}
+			}
+		}
+	}
 
 	// Remove overlapping tokens (keep the first/more specific one)
 	tokens = deduplicateTokens(tokens)

@@ -25,8 +25,9 @@ the current directory. Override with --root.`,
 		state := freshState()
 		loadWorkspace(state, root)
 
-		// Ensure the target file itself is loaded even if it sits outside root.
-		uri, ok := loadFile(state, args[0])
+		// Ensure the target file is indexed (load only if not already scanned,
+		// to preserve its entity→document mapping).
+		uri, ok := ensureFile(state, args[0])
 		if !ok {
 			fmt.Printf("No such file: %s\n", args[0])
 			return

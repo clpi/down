@@ -130,7 +130,9 @@ var kgRelated = cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		state := freshState()
 		loadWorkspace(state, resolveRoot())
-		uri, ok := loadFile(state, args[0])
+		// ensureFile avoids re-extracting an already-indexed file, which would
+		// wipe its entity→document mapping (Graph.byDoc).
+		uri, ok := ensureFile(state, args[0])
 		if !ok {
 			fmt.Printf("No such file: %s\n", args[0])
 			return
@@ -142,15 +144,15 @@ var kgRelated = cobra.Command{
 		}
 		related := make(map[string]int)
 		for _, ent := range entities {
-			for _, src := range ent.Sources {
-				if src.URI != uri {
-					related[src.URI]++
-				}
+			if ent == nil {
+				continue
 			}
-		}
-		if len(related) == 0 {
-			fmt.Println("No related documents.")
-			return
+			for _, src := range ent.Sources {
+				if src.URI == uri {
+					continue
+				}
+				related[src.URI]++
+			}
 		}
 		type kv struct {
 			uri   string

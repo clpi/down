@@ -245,7 +245,7 @@ var notionPageAppend = cobra.Command{
 	},
 }
 
-var notionDBID = cobra.Command{
+var notionDb = cobra.Command{
 	Use:   "db",
 	Short: "Database operations",
 }
@@ -328,7 +328,7 @@ var notionFileUpload = cobra.Command{
 			die(err)
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		ct := notion.contentTypeForExt(ext)
+		ct := contentTypeForExt(ext)
 		upload, err := c.CreateFileUpload(filepath.Base(path), ct)
 		if err != nil {
 			die(err)
@@ -340,8 +340,8 @@ var notionFileUpload = cobra.Command{
 	},
 }
 
-// notion.contentTypeForExt maps common extensions to MIME types.
-func notion.contentTypeForExt(ext string) string {
+// contentTypeForExt maps common extensions to MIME types.
+func contentTypeForExt(ext string) string {
 	switch ext {
 	case ".png":
 		return "image/png"
@@ -360,6 +360,12 @@ func notion.contentTypeForExt(ext string) string {
 	}
 }
 
+func richText(content string) []notion.RichText {
+	return []notion.RichText{
+		{Type: "text", Text: &notion.TextContent{Content: content}},
+	}
+}
+
 // markdownToBlocks converts simple Markdown text into Notion blocks.
 func markdownToBlocks(md string) []notion.Block {
 	var blocks []notion.Block
@@ -371,21 +377,21 @@ func markdownToBlocks(md string) []notion.Block {
 		}
 		switch {
 		case strings.HasPrefix(line, "# "):
-			blocks = append(blocks, notion.Block{Object: "block", Type: "heading_1", Heading1: &notion.HeadingBlock{notion.RichText: []notion.RichText{{Type: "text", Text: &notion.TextContent{Content: strings.TrimPrefix(line, "# ")}}}}})
+			blocks = append(blocks, notion.Block{Object: "block", Type: "heading_1", Heading1: &notion.HeadingBlock{RichText: richText(strings.TrimPrefix(line, "# "))}})
 		case strings.HasPrefix(line, "## "):
-			blocks = append(blocks, notion.Block{Object: "block", Type: "heading_2", Heading2: &notion.HeadingBlock{notion.RichText: []notion.RichText{{Type: "text", Text: &notion.TextContent{Content: strings.TrimPrefix(line, "## ")}}}}})
+			blocks = append(blocks, notion.Block{Object: "block", Type: "heading_2", Heading2: &notion.HeadingBlock{RichText: richText(strings.TrimPrefix(line, "## "))}})
 		case strings.HasPrefix(line, "- "):
-			blocks = append(blocks, notion.Block{Object: "block", Type: "bulleted_list_item", BulletedListItem: &notion.ParagraphBlock{notion.RichText: []notion.RichText{{Type: "text", Text: &notion.TextContent{Content: strings.TrimPrefix(line, "- ")}}}}})
+			blocks = append(blocks, notion.Block{Object: "block", Type: "bulleted_list_item", BulletedListItem: &notion.ParagraphBlock{RichText: richText(strings.TrimPrefix(line, "- "))}})
 		case strings.HasPrefix(line, "[ ] "):
-			blocks = append(blocks, notion.Block{Object: "block", Type: "to_do", ToDo: &notion.ToDoBlock{notion.RichText: []notion.RichText{{Type: "text", Text: &notion.TextContent{Content: strings.TrimPrefix(line, "[ ] ")}}}, Checked: false}})
+			blocks = append(blocks, notion.Block{Object: "block", Type: "to_do", ToDo: &notion.ToDoBlock{RichText: richText(strings.TrimPrefix(line, "[ ] ")), Checked: false}})
 		case strings.HasPrefix(line, "[x] "):
-			blocks = append(blocks, notion.Block{Object: "block", Type: "to_do", ToDo: &notion.ToDoBlock{notion.RichText: []notion.RichText{{Type: "text", Text: &notion.TextContent{Content: strings.TrimPrefix(line, "[x] ")}}}, Checked: true}})
+			blocks = append(blocks, notion.Block{Object: "block", Type: "to_do", ToDo: &notion.ToDoBlock{RichText: richText(strings.TrimPrefix(line, "[x] ")), Checked: true}})
 		default:
-			blocks = append(blocks, notion.Block{Object: "block", Type: "paragraph", Paragraph: &notion.ParagraphBlock{notion.RichText: []notion.RichText{{Type: "text", Text: &notion.TextContent{Content: line}}}}})
+			blocks = append(blocks, notion.Block{Object: "block", Type: "paragraph", Paragraph: &notion.ParagraphBlock{RichText: richText(line)}})
 		}
 	}
 	if len(blocks) == 0 {
-		blocks = append(blocks, notion.Block{Object: "block", Type: "paragraph", Paragraph: &notion.ParagraphBlock{notion.RichText: []notion.RichText{{Type: "text", Text: &notion.TextContent{Content: ""}}}}})
+		blocks = append(blocks, notion.Block{Object: "block", Type: "paragraph", Paragraph: &notion.ParagraphBlock{RichText: richText("")}})
 	}
 	return blocks
 }
@@ -395,7 +401,7 @@ func init() {
 	Notion.AddCommand(&notionUsers)
 	Notion.AddCommand(&notionSearch)
 	Notion.AddCommand(&notionPage)
-	Notion.AddCommand(&notionDBID)
+	Notion.AddCommand(&notionDb)
 	Notion.AddCommand(&notionBlocks)
 	Notion.AddCommand(&notionFileUpload)
 
@@ -405,9 +411,9 @@ func init() {
 	notionPage.AddCommand(&notionPageUpdate)
 	notionPage.AddCommand(&notionPageAppend)
 
-	notionDBID.AddCommand(&notionDbGet)
-	notionDBID.AddCommand(&notionDbQuery)
-	notionDBID.AddCommand(&notionDbCreate)
+	notionDb.AddCommand(&notionDbGet)
+	notionDb.AddCommand(&notionDbQuery)
+	notionDb.AddCommand(&notionDbCreate)
 
 	Notion.PersistentFlags().StringVarP(&notionOutput, "output", "o", "", "Write JSON output to file")
 	Notion.PersistentFlags().StringVarP(&notionTitle, "title", "t", "", "Page/database title")

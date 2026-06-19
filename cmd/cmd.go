@@ -19,6 +19,7 @@ import (
     "github.com/clpi/down/cmd/memory"
     "github.com/clpi/down/cmd/new"
     "github.com/clpi/down/cmd/note"
+    "github.com/clpi/down/cmd/notion"
     "github.com/clpi/down/cmd/profile"
     "github.com/clpi/down/cmd/publish"
     "github.com/clpi/down/cmd/remove"
@@ -26,6 +27,8 @@ import (
     "github.com/clpi/down/cmd/shell"
     "github.com/clpi/down/cmd/skills"
     "github.com/clpi/down/cmd/sync"
+    "github.com/clpi/down/cmd/todo"
+    "github.com/clpi/down/cmd/vector"
     cmdutil "github.com/clpi/down/cmd/util"
     "github.com/clpi/down/cmd/workspace"
     "github.com/spf13/cobra"
@@ -71,8 +74,12 @@ func Configure() {
     Down.AddCommand(&add.Add)
     Down.AddCommand(&remove.Remove)
     Down.AddCommand(&memory.Memory)
+    Down.AddCommand(&notion.Notion)
     Down.AddCommand(&downctx.Context)
     Down.AddCommand(&publish.Publish)
+    Down.AddCommand(&sync.Sync)
+    Down.AddCommand(&vector.Vector)
+    Down.AddCommand(&todo.Todo)
 }
 
 func Run(c *context.Context) {
