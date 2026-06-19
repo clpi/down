@@ -38,7 +38,10 @@ var mcpR = func(cmd *cobra.Command, args []string) {
 		mcp.WithString("query", mcp.Required(), mcp.Description("The search query")),
 	)
 	s.AddTool(searchNotesTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		query := request.Arguments["query"].(string)
+		query, err := request.RequireString("query")
+		if err != nil {
+			return mcp.NewToolResultError("missing query"), nil
+		}
 		res := fmt.Sprintf("Searching for %s in workspace... (not fully implemented)", query)
 		return mcp.NewToolResultText(res), nil
 	})
@@ -49,7 +52,10 @@ var mcpR = func(cmd *cobra.Command, args []string) {
 		mcp.WithString("path", mcp.Required(), mcp.Description("Path to the markdown note")),
 	)
 	s.AddTool(readNoteTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := request.Arguments["path"].(string)
+		path, err := request.RequireString("path")
+		if err != nil {
+			return mcp.NewToolResultError("missing path"), nil
+		}
 		res := fmt.Sprintf("Reading note at %s... (not fully implemented)", path)
 		return mcp.NewToolResultText(res), nil
 	})
