@@ -10,6 +10,7 @@ var (
 		Use:     "new <command>",
 		Aliases: []string{"create", "c"},
 		Long:    "new",
+		Hidden:                true,
 		Short:   "n",
 		Run: func(cmd *cobra.Command, args []string) {
 			log.Println("new")

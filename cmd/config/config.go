@@ -49,6 +49,7 @@ var (
 		Version:            lsp.Version,
 		Aliases:            []string{"cfg", "conf"},
 		Long:               "config",
+		Hidden:                true,
 		Short:              "c",
 		Run: func(cmd *cobra.Command, args []string) {
 			log.Println("config")

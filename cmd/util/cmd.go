@@ -1,8 +1,6 @@
 package util
 
 import (
-	"log"
-
 	"github.com/clpi/down/lsp"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -25,12 +23,6 @@ func Cmd(l string, sh []string, u string, e string, r func(*cobra.Command, []str
 	return cobra.Command{
 		Example: l,
 		Version: lsp.Version,
-		PreRun: func(cmd *cobra.Command, args []string) {
-			log.Println("pre", l, sh)
-		},
-		PostRun: func(cmd *cobra.Command, args []string) {
-			log.Println("post", l, sh)
-		},
 		CompletionOptions:     CompleteOpts,
 		DisableFlagsInUseLine: false,
 		Hidden:                false,

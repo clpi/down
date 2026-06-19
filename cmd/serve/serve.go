@@ -3,14 +3,11 @@ package serve
 import (
 	"log"
 
+	ls "github.com/clpi/down/lsp"
 	cmdutil "github.com/clpi/down/cmd/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
-
-// func (s *Server) serve(a []string) {
-// 	log.Println("ZServe")
-// }
 
 var (
 	serveS  = []string{"srv", "start"}
@@ -35,7 +32,11 @@ var (
 		},
 	}
 	serveR = func(cmd *cobra.Command, args []string) {
-		log.Println("Serve")
+		lsp, err := tls.NewServer()
+		if err != nil {
+			log.Fatal(err)
+		}
+		lsp.Server.RunStdio()
 	}
 )
 

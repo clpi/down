@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"github.com/clpi/down/cmd/lsp"
 	"github.com/spf13/cobra"
-	"log"
 )
 
 var (
@@ -11,8 +11,6 @@ var (
 		Aliases: []string{"exec"},
 		Long:    "run",
 		Short:   "r",
-		Run: func(cmd *cobra.Command, args []string) {
-			log.Println("run")
-		},
+		Run:     lsp.Lsp.Run,
 	}
 )

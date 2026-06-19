@@ -10,6 +10,7 @@ var (
 		Use:     "template <command>",
 		Aliases: []string{"template", "tmpl", "templ", "tpl", "temp", "tmp"},
 		Long:    "template",
+		Hidden:                true,
 		Short:   "t",
 		Run: func(cmd *cobra.Command, args []string) {
 			log.Println("template")

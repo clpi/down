@@ -31,6 +31,20 @@ func (s *State) Completion(
 		return items, nil
 	}
 
+	// Detect @mention trigger
+	mentionQuery := s.detectMentionCommand(p)
+	if mentionQuery != nil {
+		items = entries.MentionCompletions(items, s.Graph, *mentionQuery)
+		return items, nil
+	}
+
+	// Detect [[wiki link trigger
+	wikiQuery := s.detectWikiLinkCommand(p)
+	if wikiQuery != nil {
+		items = entries.WikiLinkCompletions(items, s.Graph, *wikiQuery)
+		return items, nil
+	}
+
 	items = entries.SnippetCompletions(items)
 	items = entries.EmojiCompletions(items)
 	items = entries.FileCompletions(items)
@@ -123,6 +137,97 @@ func (s *State) detectTagCommand(p *protocol.CompletionParams) *string {
 		if c == ' ' || c == '\t' || c == '\n' {
 			return nil
 		}
+	}
+
+	return &query
+}
+
+
+// detectMentionCommand checks if the user is typing an @mention.
+func (s *State) detectMentionCommand(p *protocol.CompletionParams) *string {
+	uri := string(p.TextDocument.URI)
+	doc, ok := s.Documents[uri]
+	if !ok {
+		return nil
+	}
+
+	lines := strings.Split(doc, "\n")
+	lineIdx := int(p.Position.Line)
+	if lineIdx >= len(lines) {
+		return nil
+	}
+	line := lines[lineIdx]
+	col := int(p.Position.Character)
+	if col > len(line) {
+		col = len(line)
+	}
+	prefix := line[:col]
+
+	idx := strings.LastIndex(prefix, "@")
+	if idx == -1 {
+		return nil
+	}
+
+	if idx+1 < len(prefix) && prefix[idx+1] == ' ' {
+		return nil
+	}
+
+	if idx > 0 {
+		charBefore := prefix[idx-1]
+		if charBefore != ' ' && charBefore != '\t' && charBefore != '\n' && charBefore != '(' && charBefore != '[' {
+			return nil
+		}
+	}
+
+	query := prefix[idx+1:]
+	for _, c := range query {
+		if c == ' ' || c == '\t' || c == '\n' {
+			return nil
+		}
+	}
+
+	return &query
+}
+
+// detectWikiLinkCommand checks if the user is typing inside an unclosed [[wiki link.
+func (s *State) detectWikiLinkCommand(p *protocol.CompletionParams) *string {
+	uri := string(p.TextDocument.URI)
+	doc, ok := s.Documents[uri]
+	if !ok {
+		return nil
+	}
+
+	lines := strings.Split(doc, "\n")
+	lineIdx := int(p.Position.Line)
+	if lineIdx >= len(lines) {
+		return nil
+	}
+	line := lines[lineIdx]
+	col := int(p.Position.Character)
+	if col > len(line) {
+		col = len(line)
+	}
+	prefix := line[:col]
+
+	openIdx := strings.LastIndex(prefix, "[[")
+	if openIdx == -1 {
+		return nil
+	}
+
+	segment := prefix[openIdx+2:]
+	if strings.Contains(segment, "]]") {
+		return nil
+	}
+
+	for _, c := range segment {
+		if c == ' ' || c == '\t' || c == '\n' {
+			return nil
+		}
+	}
+
+	query := segment
+	if pipe := strings.Index(query, "|"); pipe >= 0 {
+		query = query[:pipe]
 	}
 
 	return &query

@@ -10,6 +10,7 @@ var (
 		Use:     "list <command>",
 		Aliases: []string{"ls"},
 		Long:    "list",
+		Hidden:                true,
 		Short:   "l",
 		Run: func(cmd *cobra.Command, args []string) {
 			log.Println("list")

@@ -13,6 +13,7 @@ var (
 		Use:     "note <command>",
 		Aliases: []string{"note", "journal", "nt"},
 		Long:    "note",
+		Hidden:                true,
 		Short:   "n",
 		Example: "note today",
 		Version: lsp.Version,

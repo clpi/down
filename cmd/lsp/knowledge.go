@@ -154,6 +154,10 @@ var kgRelated = cobra.Command{
 				related[src.URI]++
 			}
 		}
+		if len(related) == 0 {
+			fmt.Println("No related documents.")
+			return
+		}
 		type kv struct {
 			uri   string
 			count int

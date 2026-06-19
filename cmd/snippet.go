@@ -10,6 +10,7 @@ var (
 		Use:     "snippet <command>",
 		Aliases: []string{"snippet", "snip", "snp", "sn", "sp", "spt", "sppt"},
 		Long:    "snippet",
+		Hidden:                true,
 		Short:   "s",
 		Run: func(cmd *cobra.Command, args []string) {
 			log.Println("snippet")

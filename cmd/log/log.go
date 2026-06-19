@@ -12,6 +12,7 @@ var (
 		Use:     "log <command>",
 		Aliases: []string{"lg", "track", "tr", "trk"},
 		Long:    "log",
+		Hidden:                true,
 		Short:   "l",
 		Example: "log",
 		Version: lsp.Version,

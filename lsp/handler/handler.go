@@ -31,28 +31,36 @@ type Handler struct {
 
 func Capabilities() protocol.ServerCapabilities {
 	cb := ph.CreateServerCapabilities()
+	cb.TextDocumentSync = &DocumentProvider.Sync
 	cb.CompletionProvider = &completion.Provider
+	cb.HoverProvider = &DocumentProvider.Hover
+	cb.SignatureHelpProvider = &SignatureOptions
+	cb.DeclarationProvider = &DocumentProvider.Declaration
+	cb.DefinitionProvider = &DocumentProvider.Definition
+	cb.TypeDefinitionProvider = &DocumentProvider.TypeDefinition
+	cb.ImplementationProvider = &DocumentProvider.Implementation
+	cb.ReferencesProvider = true
+	cb.DocumentHighlightProvider = &DocumentProvider.Highlight
+	cb.DocumentSymbolProvider = &DocumentProvider.Symbol
 	cb.CodeActionProvider = &ActionProvider
 	cb.CodeLensProvider = &LensProvider
-	cb.ExecuteCommandProvider = &CommandProvider
 	cb.DocumentLinkProvider = &DocumentProvider.Link
-	cb.DocumentHighlightProvider = &DocumentProvider.Highlight
-	cb.HoverProvider = &DocumentProvider.Hover
-	cb.DefinitionProvider = &DocumentProvider.Definition
-	cb.ReferencesProvider = true
-	cb.DocumentSymbolProvider = &DocumentProvider.Symbol
-	cb.TextDocumentSync = &DocumentProvider.Sync
-	cb.SemanticTokensProvider = &semantic.Provider
-	cb.RenameProvider = true
+	cb.ColorProvider = &DocumentProvider.Color
 	cb.DocumentFormattingProvider = true
 	cb.DocumentRangeFormattingProvider = true
 	cb.DocumentOnTypeFormattingProvider = &protocol.DocumentOnTypeFormattingOptions{
 		FirstTriggerCharacter: "\n",
 		MoreTriggerCharacter:  []string{},
 	}
+	cb.RenameProvider = true
 	cb.FoldingRangeProvider = true
+	cb.ExecuteCommandProvider = &CommandProvider
 	cb.SelectionRangeProvider = true
 	cb.LinkedEditingRangeProvider = true
+	cb.CallHierarchyProvider = true
+	cb.SemanticTokensProvider = &semantic.Provider
+	cb.MonikerProvider = true
+	cb.WorkspaceSymbolProvider = true
 	cb.Workspace = &protocol.ServerCapabilitiesWorkspace{
 		WorkspaceFolders: &protocol.WorkspaceFoldersServerCapabilities{},
 		FileOperations:   &WorkspaceFilesProvider,
@@ -104,10 +112,16 @@ func (s State) Handlers() protocol.Handler {
 		SetTrace:                       s.SetTrace,
 		Shutdown:                       s.Shutdown,
 		Exit:                           s.Exit,
-		TextDocumentLinkedEditingRange: s.LinkedEditing,
-		TextDocumentDocumentHighlight:  s.DocumentHighlight,
-		TextDocumentDocumentLink:       s.Links,
-		TextDocumentCodeLens:           s.CodeLens,
+		TextDocumentDeclaration:              s.Declaration,
+		TextDocumentTypeDefinition:         s.TypeDefinition,
+		TextDocumentImplementation:         s.Implementation,
+		TextDocumentPrepareCallHierarchy:   s.PrepareCallHierarchy,
+		CallHierarchyIncomingCalls:         s.CallHierarchyIncomingCalls,
+		CallHierarchyOutgoingCalls:         s.CallHierarchyOutgoingCalls,
+		TextDocumentLinkedEditingRange:     s.LinkedEditing,
+		TextDocumentDocumentHighlight:      s.DocumentHighlight,
+		TextDocumentDocumentLink:           s.Links,
+		TextDocumentCodeLens:               s.CodeLens,
 		TextDocumentSemanticTokensFullDelta: s.Delta,
 		WorkspaceSemanticTokensRefresh:      s.Refresh,
 		TextDocumentSemanticTokensFull:      s.Full,

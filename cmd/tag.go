@@ -10,6 +10,7 @@ var (
 		Use:     "tag <command>",
 		Aliases: []string{},
 		Long:    "tag",
+		Hidden:                true,
 		Short:   "tg",
 		Run: func(cmd *cobra.Command, args []string) {
 			log.Println("tag")

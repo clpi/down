@@ -13,6 +13,7 @@ var (
 		Aliases: []string{"fd", "search"},
 		Long:    "find",
 		Version: lsp.Version,
+		Hidden:                true,
 		Short:   "f",
 		Run: func(cmd *cobra.Command, args []string) {
 			log.Println("find")

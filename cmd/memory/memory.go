@@ -56,6 +56,10 @@ func saveEntry(e *MemoryEntry) error {
 	return os.WriteFile(filepath.Join(dir, e.Key+".json"), data, 0644)
 }
 
+func ListEntries() ([]MemoryEntry, error) {
+	return listEntries()
+}
+
 func listEntries() ([]MemoryEntry, error) {
 	dir := dataDir()
 	entries, err := os.ReadDir(dir)

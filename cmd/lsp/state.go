@@ -69,10 +69,52 @@ func loadWorkspace(state *handler.State, root string) int {
 	return count
 }
 
+// resolveFilePath turns a user-supplied path into an absolute filesystem path.
+// It tries cwd-relative paths first, then paths relative to the workspace root.
+func resolveFilePath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		if _, err := os.Stat(abs); err == nil {
+			return abs
+		}
+	}
+	root, err := filepath.Abs(resolveRoot())
+	if err != nil {
+		root = resolveRoot()
+	}
+	candidate := filepath.Join(root, path)
+	if abs, err := filepath.Abs(candidate); err == nil {
+		if _, err := os.Stat(abs); err == nil {
+			return abs
+		}
+	}
+	return ""
+}
+
+// findLoadedURI locates a document already indexed in state, matching by absolute
+// path or by basename (e.g. "design.md" inside a scanned workspace).
+func findLoadedURI(state *handler.State, path string) (string, bool) {
+	if abs := resolveFilePath(path); abs != "" {
+		uri := "file://" + abs
+		if _, ok := state.Documents[uri]; ok {
+			return uri, true
+		}
+	}
+	base := filepath.Base(path)
+	for uri := range state.Documents {
+		if filepath.Base(strings.TrimPrefix(uri, "file://")) == base {
+			return uri, true
+		}
+	}
+	return "", false
+}
+
 // loadFile reads a single markdown file into state.Documents under its file URI.
 func loadFile(state *handler.State, path string) (string, bool) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
+	abs := resolveFilePath(path)
+	if abs == "" {
 		return "", false
 	}
 	data, err := os.ReadFile(abs)
@@ -90,12 +132,7 @@ func loadFile(state *handler.State, path string) (string, bool) {
 // clears the document's byDoc index) on a file that loadWorkspace already
 // indexed, which would otherwise drop the entity→document mapping.
 func ensureFile(state *handler.State, path string) (string, bool) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", false
-	}
-	uri := "file://" + abs
-	if _, ok := state.Documents[uri]; ok {
+	if uri, ok := findLoadedURI(state, path); ok {
 		return uri, true
 	}
 	return loadFile(state, path)
@@ -127,6 +164,10 @@ func resolveRoot() string {
 // shortPath renders a file:// URI as a tidier relative path when possible.
 func shortPath(uri string) string {
 	p := strings.TrimPrefix(uri, "file://")
+	root := resolveRoot()
+	if rel, err := filepath.Rel(root, p); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
 	if rel, err := filepath.Rel(cwd(), p); err == nil && !strings.HasPrefix(rel, "..") {
 		return rel
 	}

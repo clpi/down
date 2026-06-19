@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clpi/down/cmd/compact"
+	"github.com/clpi/down/cmd/memory"
 	"github.com/spf13/cobra"
 )
 
@@ -169,6 +171,31 @@ comprehensive context file ready for AI consumption.`,
 
 		// Skills section
 		fmt.Fprintf(&b, "%s\n", buildSkillsSection(root))
+
+		if !ctxNoCompact {
+			if xml, err := compact.PackXMLString(root); err != nil {
+				fmt.Fprintf(os.Stderr, "compact: %v\n", err)
+			} else if xml != "" {
+				fmt.Fprintf(&b, "## Codebase (compact)\n\n```xml\n%s\n```\n\n", xml)
+			}
+		}
+
+		if !ctxNoMemory {
+			entries, err := memory.ListEntries()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "memory: %v\n", err)
+			} else if len(entries) > 0 {
+				fmt.Fprintf(&b, "## Memory\n\n")
+				for _, e := range entries {
+					preview := strings.ReplaceAll(e.Value, "\n", " ")
+					if len(preview) > 200 {
+						preview = preview[:200] + "..."
+					}
+					fmt.Fprintf(&b, "- **%s**: %s\n", e.Key, preview)
+				}
+				fmt.Fprintf(&b, "\n")
+			}
+		}
 
 		// Add prompt if specified
 		if ctxPrompt != "" {
