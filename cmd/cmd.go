@@ -20,6 +20,7 @@ import (
     "github.com/clpi/down/cmd/new"
     "github.com/clpi/down/cmd/note"
     "github.com/clpi/down/cmd/profile"
+    "github.com/clpi/down/cmd/publish"
     "github.com/clpi/down/cmd/remove"
     "github.com/clpi/down/cmd/serve"
     "github.com/clpi/down/cmd/shell"
@@ -71,6 +72,7 @@ func Configure() {
     Down.AddCommand(&remove.Remove)
     Down.AddCommand(&memory.Memory)
     Down.AddCommand(&downctx.Context)
+    Down.AddCommand(&publish.Publish)
 }
 
 func Run(c *context.Context) {

@@ -224,6 +224,60 @@ var memoryDelete = cobra.Command{
 	},
 }
 
+var memoryExport = cobra.Command{
+	Use:   "export [file]",
+	Short: "Export all memory entries as JSON",
+	Run: func(cmd *cobra.Command, args []string) {
+		entries, err := listEntries()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		data, err := json.MarshalIndent(entries, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if len(args) > 0 {
+			if err := os.WriteFile(args[0], data, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Exported %d entries to %s\n", len(entries), args[0])
+		} else {
+			fmt.Print(string(data))
+		}
+	},
+}
+
+var memoryImport = cobra.Command{
+	Use:   "import <file>",
+	Short: "Import memory entries from a JSON export file",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		data, err := os.ReadFile(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading: %v\n", err)
+			os.Exit(1)
+		}
+		var entries []MemoryEntry
+		if err := json.Unmarshal(data, &entries); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing: %v\n", err)
+			os.Exit(1)
+		}
+		count := 0
+		for _, e := range entries {
+			e.UpdatedAt = time.Now()
+			if err := saveEntry(&e); err != nil {
+				fmt.Fprintf(os.Stderr, "Error saving %s: %v\n", e.Key, err)
+				continue
+			}
+			count++
+		}
+		fmt.Printf("Imported %d memory entries\n", count)
+	},
+}
+
 func init() {
 	memoryAdd.Flags().StringArrayP("tag", "t", nil, "Tags for the memory entry")
 	Memory.AddCommand(&memoryAdd)
@@ -231,4 +285,6 @@ func init() {
 	Memory.AddCommand(&memoryShow)
 	Memory.AddCommand(&memorySearch)
 	Memory.AddCommand(&memoryDelete)
+	Memory.AddCommand(&memoryExport)
+	Memory.AddCommand(&memoryImport)
 }

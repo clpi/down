@@ -84,6 +84,19 @@ func NewGraph(storePath string) *Graph {
 	return g
 }
 
+// NewFreshGraph creates a new empty graph bound to storePath without loading
+// any previously persisted state. Use this for one-shot scans (e.g. CLI reads)
+// that must reflect the current workspace rather than inherited mention counts.
+func NewFreshGraph(storePath string) *Graph {
+	return &Graph{
+		Entities:  make(map[string]*Entity),
+		Relations: make([]*Relation, 0),
+		byKind:    make(map[EntityKind][]*Entity),
+		byDoc:     make(map[string][]*Entity),
+		storePath: storePath,
+	}
+}
+
 func entityID(kind EntityKind, name string) string {
 	return string(kind) + ":" + strings.ToLower(strings.TrimSpace(name))
 }

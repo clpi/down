@@ -112,7 +112,9 @@ func (s State) Handlers() protocol.Handler {
 		WorkspaceSemanticTokensRefresh:      s.Refresh,
 		TextDocumentSemanticTokensFull:      s.Full,
 		TextDocumentSemanticTokensRange:     s.Range,
-		// TextDocumentSignatureHelp:           s.SignatureHelp,
+		TextDocumentSignatureHelp:           s.SignatureHelp,
+		// TextDocumentTypeDefinition:          s.TypeDefinition,
+		// TextDocumentDeclaration:             s.Declaration,
 
 		WorkspaceDidChangeConfiguration: s.Configure,
 		WorkspaceDidChangeWatchedFiles:  s.WsDidWatch,
@@ -131,6 +133,7 @@ func (s State) Handlers() protocol.Handler {
 		TextDocumentDocumentSymbol:      s.Symbol,
 		WorkspaceSymbol:                 s.WorkspaceSymbol,
 		Progress:                        s.Progress,
+
 
 		WorkspaceDidChangeWorkspaceFolders: s.ChangeWorkspaceFolders,
 		TextDocumentMoniker:                s.Moniker,
