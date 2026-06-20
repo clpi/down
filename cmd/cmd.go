@@ -5,13 +5,16 @@ import (
 	"log"
 
 	"github.com/clpi/down/cmd/add"
+	"github.com/clpi/down/cmd/code"
 	"github.com/clpi/down/cmd/compact"
 	"github.com/clpi/down/cmd/config"
 	downctx "github.com/clpi/down/cmd/context"
 	"github.com/clpi/down/cmd/delete"
 	"github.com/clpi/down/cmd/export"
 	"github.com/clpi/down/cmd/find"
+	"github.com/clpi/down/cmd/generate"
 	"github.com/clpi/down/cmd/initialize"
+	"github.com/clpi/down/cmd/link"
 	"github.com/clpi/down/cmd/list"
 	logc "github.com/clpi/down/cmd/log"
 	lsc "github.com/clpi/down/cmd/lsp"
@@ -26,10 +29,14 @@ import (
 	"github.com/clpi/down/cmd/serve"
 	"github.com/clpi/down/cmd/shell"
 	"github.com/clpi/down/cmd/skills"
+	"github.com/clpi/down/cmd/snippet"
 	"github.com/clpi/down/cmd/sync"
+	"github.com/clpi/down/cmd/tag"
+	"github.com/clpi/down/cmd/template"
 	"github.com/clpi/down/cmd/todo"
-	"github.com/clpi/down/cmd/vector"
+	"github.com/clpi/down/cmd/upgrade"
 	cmdutil "github.com/clpi/down/cmd/util"
+	"github.com/clpi/down/cmd/vector"
 	"github.com/clpi/down/cmd/workspace"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -56,29 +63,32 @@ func Configure() {
 	Down.AddCommand(&list.List)
 	Down.AddCommand(&config.Config)
 	Down.AddCommand(&logc.Log)
-	Down.AddCommand(&Tag)
+	Down.AddCommand(&tag.Tag)
 	Down.AddCommand(&new.New)
 	Down.AddCommand(&note.Note)
-	Down.AddCommand(&Link)
+	Down.AddCommand(&link.Link)
 	Down.AddCommand(&shell.Shell)
 	Down.AddCommand(&serve.Serve)
 	Down.AddCommand(&delete.Delete)
 	Down.AddCommand(&export.Export)
 	Down.AddCommand(&sync.Sync)
-	Down.AddCommand(&Snippet)
-	Down.AddCommand(&Template)
+	Down.AddCommand(&snippet.Snippet)
+	Down.AddCommand(&template.Template)
 	Down.AddCommand(&profile.Profile)
 	Down.AddCommand(&mcp.Mcp)
 	Down.AddCommand(&compact.Compact)
+	Down.AddCommand(&generate.Generate)
 	Down.AddCommand(&skills.Skills)
 	Down.AddCommand(&add.Add)
 	Down.AddCommand(&remove.Remove)
 	Down.AddCommand(&memory.Memory)
 	Down.AddCommand(&repomix.Repomix)
+	Down.AddCommand(&code.Code)
 	Down.AddCommand(&downctx.Context)
 	Down.AddCommand(&publish.Publish)
 	Down.AddCommand(&vector.Vector)
 	Down.AddCommand(&todo.Todo)
+	Down.AddCommand(&upgrade.Upgrade)
 }
 
 func Run(c *context.Context) {

@@ -12,10 +12,10 @@ import (
 // This is exposed via the down.inline.complete command since protocol 3.16 doesn't
 // have native inline completion support. Clients can use this via custom requests.
 type InlineCompletionItem struct {
-	InsertText string          `json:"insertText"`
-	Range      protocol.Range  `json:"range"`
+	InsertText string            `json:"insertText"`
+	Range      protocol.Range    `json:"range"`
 	Command    *protocol.Command `json:"command,omitempty"`
-	FilterText string          `json:"filterText,omitempty"`
+	FilterText string            `json:"filterText,omitempty"`
 }
 
 // InlineCompletionParams mirrors the LSP 3.18 InlineCompletionParams.
@@ -27,18 +27,14 @@ type InlineCompletionParams struct {
 
 // InlineCompletionContext provides context for inline completion.
 type InlineCompletionContext struct {
-	TriggerKind   int    `json:"triggerKind"` // 1=Automatic, 2=Explicit
-	SelectedText  string `json:"selectedCompletionInfo,omitempty"`
+	TriggerKind  int    `json:"triggerKind"` // 1=Automatic, 2=Explicit
+	SelectedText string `json:"selectedCompletionInfo,omitempty"`
 }
 
 // InlineComplete provides AI-powered ghost text completions.
 // This generates multi-line continuation suggestions based on document context.
 // Available via the "down.inline.complete" command.
 func (s *State) InlineComplete(_ *glsp.Context, p *protocol.ExecuteCommandParams) (any, error) {
-	if s.AI == nil {
-		return nil, nil
-	}
-
 	args := p.Arguments
 	if len(args) < 2 {
 		return nil, nil
@@ -115,26 +111,114 @@ func (s *State) InlineComplete(_ *glsp.Context, p *protocol.ExecuteCommandParams
 	return items, nil
 }
 
-// generateInlineCompletions uses the AI engine to produce ghost text suggestions.
+// generateInlineCompletions uses the AI engine to produce ghost text suggestions,
+// falling back to knowledge-graph continuations when AI is unavailable.
 func (s *State) generateInlineCompletions(ctx context.Context, docURI, preceding, currentLine, following string) []string {
-	if s.AI == nil {
+	if s.AI != nil {
+		completions, err := s.AI.InlineComplete(ctx, docURI, preceding, currentLine, following)
+		if err == nil && len(completions) > 0 {
+			return completions
+		}
+	}
+	return s.knowledgeInlineCompletions(docURI, preceding, currentLine)
+}
+
+// knowledgeInlineCompletions suggests continuations from the embedded knowledge graph.
+func (s *State) knowledgeInlineCompletions(docURI, preceding, currentLine string) []string {
+	if s.Graph == nil {
 		return nil
 	}
 
-	completions, err := s.AI.InlineComplete(ctx, docURI, preceding, currentLine, following)
-	if err != nil {
+	query := strings.TrimSpace(currentLine)
+	if query == "" {
+		// Use last non-empty preceding line as query seed
+		for i := len(strings.Split(preceding, "\n")) - 1; i >= 0; i-- {
+			line := strings.TrimSpace(strings.Split(preceding, "\n")[i])
+			if line != "" {
+				query = line
+				break
+			}
+		}
+	}
+	if len(query) < 3 {
 		return nil
 	}
+
+	// Extract last word as entity search term
+	words := strings.Fields(query)
+	searchTerm := query
+	if len(words) > 0 {
+		searchTerm = words[len(words)-1]
+	}
+	if len(searchTerm) < 2 {
+		return nil
+	}
+
+	results := s.Graph.Search(searchTerm)
+	if len(results) == 0 {
+		return nil
+	}
+
+	completions := make([]string, 0, 3)
+	seen := make(map[string]bool)
+
+	// Prefer entities related to the current document
+	docEntities := s.Graph.EntitiesByDocument(docURI)
+	docRelated := make(map[string]bool)
+	for _, ent := range docEntities {
+		for _, rel := range s.Graph.RelationsFrom(ent.ID) {
+			if target, ok := s.Graph.Entities[rel.To]; ok {
+				docRelated[target.Name] = true
+			}
+		}
+	}
+
+	for _, ent := range results {
+		if ent.Name == "" || seen[ent.Name] {
+			continue
+		}
+		seen[ent.Name] = true
+
+		suggestion := ""
+		switch ent.Kind {
+		case "tag":
+			suggestion = " #" + ent.Name
+		case "person", "mention":
+			suggestion = " @" + ent.Name
+		case "link", "document":
+			suggestion = " [[" + ent.Name + "]]"
+		default:
+			if docRelated[ent.Name] {
+				suggestion = " — see [[" + ent.Name + "]]"
+			} else if ent.Properties["summary"] != "" {
+				suggestion = " (" + truncate(ent.Properties["summary"], 60) + ")"
+			} else {
+				suggestion = " [[" + ent.Name + "]]"
+			}
+		}
+
+		if suggestion != "" && !strings.Contains(currentLine, ent.Name) {
+			completions = append(completions, suggestion)
+		}
+		if len(completions) >= 3 {
+			break
+		}
+	}
+
 	return completions
+}
+
+func truncate(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
 }
 
 // ComputeInlineCompletion provides inline ghost-text for a specific position.
 // This is the main entry point for editors supporting custom inline completion.
 func (s *State) ComputeInlineCompletion(uri string, line int, character int) []InlineCompletionItem {
-	if s.AI == nil {
-		return nil
-	}
-
 	text, ok := s.Documents[uri]
 	if !ok {
 		return nil

@@ -1,10 +1,35 @@
 package handler
 
 import (
+	"strings"
+
 	"github.com/clpi/down/lsp/handler/semantic"
 	"github.com/tliron/glsp"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
+
+func (s *State) knownEntitySet() map[string]bool {
+	if s.Graph == nil {
+		return nil
+	}
+	entities := s.Graph.AllEntities()
+	if len(entities) == 0 {
+		return nil
+	}
+	known := make(map[string]bool, len(entities)*2)
+	for _, ent := range entities {
+		if ent.Name == "" {
+			continue
+		}
+		known[ent.Name] = true
+		known[strings.ToLower(ent.Name)] = true
+	}
+	return known
+}
+
+func (s *State) semanticTokensFor(uri, text string) []semantic.Token {
+	return semantic.TokenizeWithGraph(text, s.knownEntitySet())
+}
 
 func (s *State) Full(_ *glsp.Context, p *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
 	uri := string(p.TextDocument.URI)
@@ -13,7 +38,7 @@ func (s *State) Full(_ *glsp.Context, p *protocol.SemanticTokensParams) (*protoc
 		return nil, nil
 	}
 
-	tokens := semantic.Tokenize(text)
+	tokens := s.semanticTokensFor(uri, text)
 	if len(tokens) == 0 {
 		return nil, nil
 	}
@@ -38,7 +63,7 @@ func (s *State) Range(_ *glsp.Context, p *protocol.SemanticTokensRangeParams) (a
 		return nil, nil
 	}
 
-	allTokens := semantic.Tokenize(text)
+	allTokens := s.semanticTokensFor(uri, text)
 	startLine := int(p.Range.Start.Line)
 	endLine := int(p.Range.End.Line)
 
@@ -56,4 +81,3 @@ func (s *State) Range(_ *glsp.Context, p *protocol.SemanticTokensRangeParams) (a
 	data := semantic.Encode(rangeTokens)
 	return &protocol.SemanticTokens{Data: data}, nil
 }
-

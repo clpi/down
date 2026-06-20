@@ -4,13 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/clpi/down/cmd/add"
-	"github.com/clpi/down/cmd/vector"
+	"github.com/clpi/down/lsp/ai"
 	"github.com/spf13/cobra"
 )
 
@@ -63,7 +64,9 @@ func ensureDirs(downDir string) {
 
 func fileHash(path string) string {
 	f, err := os.Open(path)
-	if err != nil { return "" }
+	if err != nil {
+		return ""
+	}
 	defer f.Close()
 	h := sha256.New()
 	io.Copy(h, f)
@@ -78,7 +81,9 @@ func loadIndex(downDir string) *FileIndex {
 	}
 	var idx FileIndex
 	if json.Unmarshal(data, &idx) == nil {
-		if idx.Files == nil { idx.Files = make(map[string]FileEntry) }
+		if idx.Files == nil {
+			idx.Files = make(map[string]FileEntry)
+		}
 		return &idx
 	}
 	return &FileIndex{Files: make(map[string]FileEntry), Version: 1}
@@ -93,7 +98,9 @@ func saveIndex(downDir string, idx *FileIndex) {
 
 func shouldIgnore(name string, ignores []string) bool {
 	for _, pat := range ignores {
-		if matched, _ := filepath.Match(pat, name); matched { return true }
+		if matched, _ := filepath.Match(pat, name); matched {
+			return true
+		}
 	}
 	return false
 }
@@ -101,7 +108,9 @@ func shouldIgnore(name string, ignores []string) bool {
 func loadDownIgnore(downDir string) []string {
 	path := filepath.Join(downDir, ".downignore")
 	data, err := os.ReadFile(path)
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
 	var patterns []string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -113,32 +122,39 @@ func loadDownIgnore(downDir string) []string {
 }
 
 type SyncResult struct {
-	Added    int
-	Modified int
-	Deleted  int
-	Unchanged int
-	Errors   int
-	Files    []string
+	Added       int
+	Modified    int
+	Deleted     int
+	Unchanged   int
+	Errors      int
+	AddedFiles   []string
+	ModifiedFiles []string
+	DeletedFiles  []string
+	Files       []string
 }
 
 func syncWorkspace(downDir, root string) *SyncResult {
 	result := &SyncResult{}
 	idx := loadIndex(downDir)
 	ignores := loadDownIgnore(downDir)
-
-	// Default ignores
 	ignores = append(ignores, ".git", ".svn", "node_modules", ".DS_Store", ".down")
 
-	// Walk workspace
 	currentFiles := make(map[string]bool)
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil { result.Errors++; return nil }
-		if info.IsDir() {
-			n := info.Name()
-			if shouldIgnore(n, ignores) { return filepath.SkipDir }
+		if err != nil {
+			result.Errors++
 			return nil
 		}
-		if info.Name() == ".down" || info.Name() == ".git" { return nil }
+		if info.IsDir() {
+			n := info.Name()
+			if shouldIgnore(n, ignores) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.Name() == ".down" || info.Name() == ".git" {
+			return nil
+		}
 
 		rel, _ := filepath.Rel(root, path)
 		currentFiles[rel] = true
@@ -149,16 +165,24 @@ func syncWorkspace(downDir, root string) *SyncResult {
 		if !exists {
 			result.Added++
 			result.Files = append(result.Files, fmt.Sprintf("+ %s", rel))
+			result.AddedFiles = append(result.AddedFiles, rel)
 			idx.Files[rel] = FileEntry{
-				Path: rel, Hash: hash, Size: info.Size(),
-				ModTime: info.ModTime().Unix(), Synced: time.Now().Format(time.RFC3339),
+				Path:    rel,
+				Hash:    hash,
+				Size:    info.Size(),
+				ModTime: info.ModTime().Unix(),
+				Synced:  time.Now().Format(time.RFC3339),
 			}
 		} else if entry.Hash != hash {
 			result.Modified++
 			result.Files = append(result.Files, fmt.Sprintf("~ %s", rel))
+			result.ModifiedFiles = append(result.ModifiedFiles, rel)
 			idx.Files[rel] = FileEntry{
-				Path: rel, Hash: hash, Size: info.Size(),
-				ModTime: info.ModTime().Unix(), Synced: time.Now().Format(time.RFC3339),
+				Path:    rel,
+				Hash:    hash,
+				Size:    info.Size(),
+				ModTime: info.ModTime().Unix(),
+				Synced:  time.Now().Format(time.RFC3339),
 			}
 		} else {
 			result.Unchanged++
@@ -166,11 +190,11 @@ func syncWorkspace(downDir, root string) *SyncResult {
 		return nil
 	})
 
-	// Detect deleted files
 	for rel := range idx.Files {
 		if !currentFiles[rel] {
 			result.Deleted++
 			result.Files = append(result.Files, fmt.Sprintf("- %s", rel))
+			result.DeletedFiles = append(result.DeletedFiles, rel)
 			delete(idx.Files, rel)
 		}
 	}
@@ -180,23 +204,147 @@ func syncWorkspace(downDir, root string) *SyncResult {
 	return result
 }
 
+func loadMarkdownFiles(root string) []string {
+	var files []string
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			n := info.Name()
+			if n == ".git" || n == "node_modules" || n == ".down" || strings.HasPrefix(n, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(path), ".md") {
+			rel, _ := filepath.Rel(root, path)
+			files = append(files, rel)
+		}
+		return nil
+	})
+	return files
+}
+
+func buildEmbeddings(downDir, root string, changedFiles []string) int {
+	emb := ai.NewLocalEmbedding(ai.DefaultEmbeddingConfig())
+	vDir := filepath.Join(downDir, "vector")
+	os.MkdirAll(vDir, 0755)
+
+	allMD := loadMarkdownFiles(root)
+	var allTexts []string
+	for _, rel := range allMD {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			continue
+		}
+		allTexts = append(allTexts, string(data))
+	}
+
+	emb.Train(allTexts)
+
+	count := 0
+	toIndex := changedFiles
+	if len(changedFiles) == 0 || syncForce {
+		toIndex = allMD
+	}
+	for _, rel := range toIndex {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			continue
+		}
+		text := string(data)
+		vec, _ := emb.Embed(nil, []string{text})
+		if vec == nil || len(vec) == 0 {
+			continue
+		}
+
+		entry := vectorEntry{
+			ID:      "file_" + strings.ReplaceAll(rel, "/", "_"),
+			Vector:  vec[0],
+			Text:    truncateText(text, 1000),
+			Source:  rel,
+			Created: time.Now().Format(time.RFC3339),
+		}
+		saveVectorEntry(vDir, entry)
+		count++
+	}
+
+	modelPath := filepath.Join(vDir, "model.json")
+	idf := emb.IDF()
+	model := map[string]interface{}{
+		"idf":        idf,
+		"dimension":  emb.Dimension(),
+		"doc_count":  len(allMD),
+		"updated":    time.Now().Format(time.RFC3339),
+	}
+	modelData, _ := json.MarshalIndent(model, "", "  ")
+	os.WriteFile(modelPath, modelData, 0644)
+
+	if syncVerbose {
+		fmt.Printf("  vector/    %d files embedded, IDF: %d terms\n", count, len(idf))
+	}
+	return count
+}
+
+type vectorEntry struct {
+	ID      string    `json:"id"`
+	Vector  []float32 `json:"vector"`
+	Text    string    `json:"text"`
+	Source  string    `json:"source"`
+	Created string    `json:"created"`
+}
+
+func saveVectorEntry(dir string, v vectorEntry) error {
+	id := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ' ' || r == ':' {
+			return '_'
+		}
+		return r
+	}, v.ID)
+	data, _ := json.MarshalIndent(v, "", "  ")
+	return os.WriteFile(filepath.Join(dir, id+".json"), data, 0644)
+}
+
 func syncWebSources(downDir string) int {
 	dataDir := filepath.Join(downDir, "data")
-	entries, _ := os.ReadDir(dataDir)
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return 0
+	}
 	count := 0
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") { continue }
-		data, err := os.ReadFile(filepath.Join(dataDir, e.Name()))
-		if err != nil { continue }
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		fullPath := filepath.Join(dataDir, e.Name())
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			continue
+		}
 		content := string(data)
-		if !strings.HasPrefix(content, "---\n") { continue }
+		if !strings.HasPrefix(content, "---\n") {
+			continue
+		}
 		end := strings.Index(content[4:], "\n---\n")
-		if end <= 0 { continue }
+		if end <= 0 {
+			continue
+		}
 		fm := content[4 : 4+end]
 		for _, line := range strings.Split(fm, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "source: http") {
 				source := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "source: "))
-				if syncVerbose { fmt.Printf("  ↗ pulling: %s\n", source) }
+				if syncVerbose {
+					fmt.Printf("  web/       re-fetching: %s\n", source)
+				}
+				newContent, err := add.FetchURL(source)
+				if err != nil {
+					if syncVerbose {
+						fmt.Printf("  web/       error fetching %s: %v\n", source, err)
+					}
+					continue
+				}
+				os.WriteFile(fullPath, []byte(newContent), 0644)
 				count++
 			}
 		}
@@ -204,18 +352,287 @@ func syncWebSources(downDir string) int {
 	return count
 }
 
+func buildKnowledgeBase(downDir, root string) int {
+	allMD := loadMarkdownFiles(root)
+	count := 0
+
+	type kbEntity struct {
+		ID        string   `json:"id"`
+		Name      string   `json:"name"`
+		Kind      string   `json:"kind"`
+		File      string   `json:"file"`
+		Relations []string `json:"relations"`
+	}
+
+	var entities []kbEntity
+	tagIndex := make(map[string]bool)
+	linkIndex := make(map[string][]string)
+
+	for _, rel := range allMD {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			continue
+		}
+		content := string(data)
+
+		if strings.HasPrefix(content, "---\n") {
+			end := strings.Index(content[4:], "\n---\n")
+			if end > 0 {
+				fm := content[4 : 4+end]
+				for _, line := range strings.Split(fm, "\n") {
+					if strings.HasPrefix(strings.TrimSpace(line), "tags:") {
+						tags := strings.TrimPrefix(strings.TrimSpace(line), "tags:")
+						for _, t := range strings.Split(tags, ",") {
+							t = strings.TrimSpace(t)
+							if t != "" {
+								tagIndex[t] = true
+							}
+						}
+					}
+				}
+			}
+		}
+
+		for _, line := range strings.Split(content, "\n") {
+			for _, tag := range extractTags(line) {
+				tagIndex[tag] = true
+			}
+			for _, link := range extractWikiLinks(line) {
+				linkIndex[link] = append(linkIndex[link], rel)
+			}
+		}
+	}
+
+	for tag := range tagIndex {
+		entities = append(entities, kbEntity{
+			ID:        "tag/" + tag,
+			Name:      tag,
+			Kind:      "tag",
+			File:      "",
+			Relations: nil,
+		})
+		count++
+	}
+
+	for link, files := range linkIndex {
+		entities = append(entities, kbEntity{
+			ID:        "wiki/" + link,
+			Name:      link,
+			Kind:      "concept",
+			File:      strings.Join(files, ","),
+			Relations: files,
+		})
+		count++
+	}
+
+	kbPath := filepath.Join(downDir, "knowledge", "entities.json")
+	kbData, _ := json.MarshalIndent(entities, "", "  ")
+	os.WriteFile(kbPath, kbData, 0644)
+
+	return count
+}
+
+func extractTags(line string) []string {
+	var tags []string
+	for _, word := range strings.Fields(line) {
+		if strings.HasPrefix(word, "#") && len(word) > 1 {
+			tag := strings.TrimPrefix(word, "#")
+			tag = strings.TrimRight(tag, ".,;:!?)")
+			if tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+	}
+	return tags
+}
+
+func extractWikiLinks(line string) []string {
+	var links []string
+	start := 0
+	for {
+		i := strings.Index(line[start:], "[[")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(line[start+i+2:], "]]")
+		if j < 0 {
+			break
+		}
+		link := line[start+i+2 : start+i+2+j]
+		if link != "" {
+			links = append(links, link)
+		}
+		start = start + i + j + 3
+	}
+	return links
+}
+
+func buildContext(downDir, root string, result *SyncResult) string {
+	idx := loadIndex(downDir)
+	name := filepath.Base(root)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("# %s — Workspace Context\n\n", name))
+	b.WriteString(fmt.Sprintf("> Synced: %s\n", time.Now().Format("2006-01-02 15:04")))
+	b.WriteString(fmt.Sprintf("> Files: %d tracked\n\n", len(idx.Files)))
+
+	b.WriteString("## File Statistics\n\n")
+	b.WriteString(fmt.Sprintf("- Added: %d\n", result.Added))
+	b.WriteString(fmt.Sprintf("- Modified: %d\n", result.Modified))
+	b.WriteString(fmt.Sprintf("- Deleted: %d\n", result.Deleted))
+	b.WriteString(fmt.Sprintf("- Unchanged: %d\n\n", result.Unchanged))
+
+	if len(result.AddedFiles)+len(result.ModifiedFiles) > 0 {
+		b.WriteString("## Recent Changes\n\n")
+		for _, f := range result.AddedFiles {
+			b.WriteString(fmt.Sprintf("- + %s\n", f))
+		}
+		for _, f := range result.ModifiedFiles {
+			b.WriteString(fmt.Sprintf("- ~ %s\n", f))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("## Directory Map\n\n")
+	dirs := make(map[string]bool)
+	for rel := range idx.Files {
+		dir := filepath.Dir(rel)
+		if dir != "." {
+			dirs[dir] = true
+		}
+	}
+	for d := range dirs {
+		b.WriteString(fmt.Sprintf("- `%s/`\n", d))
+	}
+	b.WriteString("\n")
+
+	embsFile := filepath.Join(downDir, "vector", "model.json")
+	if data, err := os.ReadFile(embsFile); err == nil {
+		var model map[string]interface{}
+		if json.Unmarshal(data, &model) == nil {
+			b.WriteString("## Vector Index\n\n")
+			if dim, ok := model["dimension"]; ok {
+				b.WriteString(fmt.Sprintf("- Dimension: %v\n", dim))
+			}
+			if dc, ok := model["doc_count"]; ok {
+				b.WriteString(fmt.Sprintf("- Documents: %v\n", dc))
+			}
+			if idf, ok := model["idf"].(map[string]interface{}); ok {
+				b.WriteString(fmt.Sprintf("- IDF terms: %d\n\n", len(idf)))
+			}
+		}
+	}
+
+	return b.String()
+}
+
+func syncDataFiles(downDir, root string) int {
+	dataDir := filepath.Join(downDir, "data")
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	var compacted []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		count++
+		compacted = append(compacted, e.Name())
+	}
+
+	compactPath := filepath.Join(downDir, "data", "index.json")
+	index := map[string]interface{}{
+		"files":    compacted,
+		"count":    count,
+		"updated":  time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.MarshalIndent(index, "", "  ")
+	os.WriteFile(compactPath, data, 0644)
+
+	if syncVerbose {
+		fmt.Printf("  data/      %d files indexed\n", count)
+	}
+	return count
+}
+
+func syncMemoryStore(downDir string) int {
+	memDir := filepath.Join(downDir, "memory")
+	os.MkdirAll(memDir, 0755)
+
+	entries, err := os.ReadDir(memDir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+			data, err := os.ReadFile(filepath.Join(memDir, e.Name()))
+			if err != nil {
+				continue
+			}
+			var mem map[string]interface{}
+			if json.Unmarshal(data, &mem) != nil {
+				continue
+			}
+			if ts, ok := mem["expires"]; ok {
+				if expire, ok := ts.(string); ok {
+					if t, err := time.Parse(time.RFC3339, expire); err == nil && time.Now().After(t) {
+						os.Remove(filepath.Join(memDir, e.Name()))
+						count++
+						continue
+					}
+				}
+			}
+		}
+	}
+
+	indexPath := filepath.Join(memDir, "index.json")
+	entries, _ = os.ReadDir(memDir)
+	active := []string{}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") && e.Name() != "index.json" {
+			active = append(active, e.Name())
+		}
+	}
+	idx := map[string]interface{}{
+		"entries":  active,
+		"count":    len(active),
+		"expired":  count,
+		"reconciled": time.Now().Format(time.RFC3339),
+	}
+	idxData, _ := json.MarshalIndent(idx, "", "  ")
+	os.WriteFile(indexPath, idxData, 0644)
+
+	if syncVerbose {
+		fmt.Printf("  memory/    %d active, %d expired\n", len(active), count)
+	}
+	return len(active)
+}
+
+func truncateText(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 var Sync = cobra.Command{
 	Use:     "sync",
 	Aliases: []string{"sy"},
-	Short:   "Sync workspace: detect file changes, update indices, pull web content",
+	Short:   "Sync workspace: detect changes, update embeddings, knowledge, context, web",
 	Long: `Sync workspace data by detecting new, modified, and deleted files.
 
 Updates:
-  knowledge/    File index with SHA-256 hashes
-  vector/       Regenerates embeddings for changed files
-  data/         Pulls fresh content for URL sources
-  
-Runs sub-syncs in order: data → knowledge → memory → context → vector → web → git`,
+  data/         Indexes all ingested data files
+  knowledge/    File index with SHA-256 hashes + entity extraction
+  memory/       Reconciles memory entries, prunes expired
+  context/      Regenerates workspace context document
+  vector/       Builds IDF vocabulary and re-embeds changed files
+  web/          Re-fetches content for URL-based sources
+
+Runs sub-syncs in order: data → knowledge → memory → context → vector → web`,
 	Run: func(cmd *cobra.Command, args []string) {
 		root, _ := os.Getwd()
 		downDir := findDownDir(root)
@@ -225,150 +642,161 @@ Runs sub-syncs in order: data → knowledge → memory → context → vector �
 		}
 		ensureDirs(downDir)
 
-		// File change detection
-		fmt.Println("Syncing files...")
+		fmt.Println("Syncing workspace...")
+
 		result := syncWorkspace(downDir, root)
 		if syncVerbose {
-			for _, f := range result.Files { fmt.Println(" ", f) }
+			for _, f := range result.Files {
+				fmt.Println(" ", f)
+			}
 		}
 		fmt.Printf("  +%d added  ~%d modified  -%d deleted  =%d unchanged\n",
 			result.Added, result.Modified, result.Deleted, result.Unchanged)
 
-		// Sub-syncs
-		if !syncDryRun {
-			fmt.Println("  data/      synced")
-			idx := loadIndex(downDir)
-			fmt.Printf("  knowledge/ index updated (v%d, %d files)\n", idx.Version, len(idx.Files))
-			fmt.Println("  memory/    reconciled")
-
-			// Vector: mark for re-index on changed files
-			if result.Added+result.Modified > 0 {
-				vCount := updateVectorStore(downDir, root, getAddedModified(downDir, root))
-				fmt.Printf("  vector/    %d embeddings updated\n", vCount)
-			} else {
-				fmt.Println("  vector/    up to date")
-			}
-
-			ctxPath := filepath.Join(downDir, "context.md")
-			name := filepath.Base(root)
-			ctx := fmt.Sprintf("# %s — Context\n\n> Synced: %s\n> Files: %d total\n\n## Recent Changes\n\n",
-				name, time.Now().Format("2006-01-02 15:04"), len(idx.Files))
-			for _, f := range result.Files {
-				ctx += fmt.Sprintf("- %s\n", f)
-			}
-			os.WriteFile(ctxPath, []byte(ctx), 0644)
-			fmt.Println("  context/   regenerated")
-
-			// Web sources
-			webCount := syncWebSources(downDir)
-			if webCount > 0 {
-				fmt.Printf("  web/       %d URL sources refreshed\n", webCount)
-			} else {
-				fmt.Println("  web/       no URL sources to refresh")
-			}
-		}
-
 		if syncDryRun {
 			fmt.Println("\n  (dry run — no files modified)")
-		} else {
-			fmt.Println("\nWorkspace synced.")
+			return
 		}
+
+		allChanged := append(result.AddedFiles, result.ModifiedFiles...)
+
+		dc := syncDataFiles(downDir, root)
+		fmt.Printf("  data/      %d files\n", dc)
+
+		kc := buildKnowledgeBase(downDir, root)
+		idx := loadIndex(downDir)
+		fmt.Printf("  knowledge/ index v%d, %d files, %d entities\n", idx.Version, len(idx.Files), kc)
+
+		mc := syncMemoryStore(downDir)
+		fmt.Printf("  memory/    %d entries\n", mc)
+
+		ctx := buildContext(downDir, root, result)
+		os.WriteFile(filepath.Join(downDir, "context.md"), []byte(ctx), 0644)
+		fmt.Println("  context/   regenerated")
+
+		var vc int
+		if syncForce || len(allChanged) > 0 {
+			vc = buildEmbeddings(downDir, root, allChanged)
+			fmt.Printf("  vector/    %d embeddings updated\n", vc)
+		} else {
+			vc = buildEmbeddings(downDir, root, nil)
+			fmt.Printf("  vector/    %d embeddings checked\n", vc)
+		}
+
+		wc := syncWebSources(downDir)
+		if wc > 0 {
+			fmt.Printf("  web/       %d URL sources refreshed\n", wc)
+		} else {
+			fmt.Println("  web/       up to date")
+		}
+
+		fmt.Println("\nWorkspace synced.")
 	},
 }
 
 var syncData = cobra.Command{
-	Use:   "data", Short: "Re-index all ingested files in data/",
+	Use:   "data",
+	Short: "Re-index all ingested files in data/",
 	Run: func(cmd *cobra.Command, args []string) {
 		root, _ := os.Getwd()
 		downDir := findDownDir(root)
-		if downDir == "" { fmt.Println("No .down/ found"); return }
-		entries, _ := os.ReadDir(filepath.Join(downDir, "data"))
-		count := 0
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") { count++ }
+		if downDir == "" {
+			fmt.Println("No .down/ found")
+			return
 		}
-		fmt.Printf("data/: %d files\n", count)
+		c := syncDataFiles(downDir, root)
+		fmt.Printf("data/: %d files indexed\n", c)
 	},
 }
 
 var syncKnowledge = cobra.Command{
-	Use: "knowledge", Short: "Rebuild file index with SHA-256 hashes",
+	Use:   "knowledge",
+	Short: "Rebuild file index with SHA-256 hashes and entity extraction",
 	Run: func(cmd *cobra.Command, args []string) {
 		root, _ := os.Getwd()
 		downDir := findDownDir(root)
-		if downDir == "" { fmt.Println("No .down/ found"); return }
+		if downDir == "" {
+			fmt.Println("No .down/ found")
+			return
+		}
 		result := syncWorkspace(downDir, root)
-		fmt.Printf("Knowledge index: +%d added ~%d changed -%d removed\n", result.Added, result.Modified, result.Deleted)
+		kc := buildKnowledgeBase(downDir, root)
+		fmt.Printf("Knowledge: +%d added ~%d changed -%d removed, %d entities\n",
+			result.Added, result.Modified, result.Deleted, kc)
 	},
 }
 
 var syncMemory = cobra.Command{
-	Use: "memory", Short: "Reconcile memory with workspace changes",
+	Use:   "memory",
+	Short: "Reconcile memory entries and prune expired",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("memory: reconciled")
+		root, _ := os.Getwd()
+		downDir := findDownDir(root)
+		if downDir == "" {
+			fmt.Println("No .down/ found")
+			return
+		}
+		c := syncMemoryStore(downDir)
+		fmt.Printf("memory: %d active entries\n", c)
 	},
 }
 
 var syncContext = cobra.Command{
-	Use: "context", Short: "Regenerate workspace context document",
+	Use:   "context",
+	Short: "Regenerate workspace context document",
 	Run: func(cmd *cobra.Command, args []string) {
 		root, _ := os.Getwd()
 		downDir := findDownDir(root)
-		if downDir == "" { fmt.Println("No .down/ found"); return }
-		name := filepath.Base(root)
-		idx := loadIndex(downDir)
-		path := filepath.Join(downDir, "context.md")
-		ctx := fmt.Sprintf("# %s — Context\n\n> Generated: %s\n> Indexed files: %d\n", name, time.Now().Format(time.RFC3339), len(idx.Files))
-		os.WriteFile(path, []byte(ctx), 0644)
-		fmt.Printf("context/: regenerated (%d files)\n", len(idx.Files))
+		if downDir == "" {
+			fmt.Println("No .down/ found")
+			return
+		}
+		result := syncWorkspace(downDir, root)
+		ctx := buildContext(downDir, root, result)
+		os.WriteFile(filepath.Join(downDir, "context.md"), []byte(ctx), 0644)
+		fmt.Printf("context/: regenerated (%d files)\n", len(loadIndex(downDir).Files))
 	},
 }
 
 var syncVector = cobra.Command{
-	Use: "vector", Short: "Re-index vector embeddings for changed files",
+	Use:   "vector",
+	Short: "Rebuild vector embeddings for all markdown files in workspace",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("vector/: up to date (use `down vector index` to re-index)")
+		root, _ := os.Getwd()
+		downDir := findDownDir(root)
+		if downDir == "" {
+			fmt.Println("No .down/ found")
+			return
+		}
+		result := syncWorkspace(downDir, root)
+		allChanged := append(result.AddedFiles, result.ModifiedFiles...)
+		if syncForce {
+			allChanged = nil
+		}
+		vc := buildEmbeddings(downDir, root, allChanged)
+		fmt.Printf("vector/: %d embeddings updated\n", vc)
 	},
 }
 
 var syncWeb = cobra.Command{
-	Use: "web", Short: "Pull fresh content for URL sources in data/",
+	Use:   "web",
+	Short: "Re-fetch content for URL-based sources in data/",
 	Run: func(cmd *cobra.Command, args []string) {
 		root, _ := os.Getwd()
 		downDir := findDownDir(root)
-		if downDir == "" { fmt.Println("No .down/ found"); return }
-		count := syncWebSources(downDir)
-		if count > 0 {
-			fmt.Printf("web/: %d URL sources refreshed\n", count)
+		if downDir == "" {
+			fmt.Println("No .down/ found")
+			return
+		}
+		wc := syncWebSources(downDir)
+		if wc > 0 {
+			fmt.Printf("web/: %d URL sources refreshed\n", wc)
 		} else {
 			fmt.Println("web/: no URL sources to refresh")
 		}
 	},
 }
 
-// getAddedModified returns lists of added and modified markdown file paths
-func getAddedModified(downDir, root string) (added, modified []string) {
-	idx := loadIndex(downDir)
-	for _, f := range syncWorkspace(downDir, root).Files {
-		f = strings.TrimPrefix(f, "+ ")
-		f = strings.TrimPrefix(f, "~ ")
-		f = strings.TrimPrefix(f, "- ")
-		fullPath := filepath.Join(root, f)
-		if strings.HasSuffix(strings.ToLower(f), ".md") {
-			if strings.HasPrefix(syncWorkspace(downDir, root).Files[0], "+ ") {
-				added = append(added, f)
-			} else if strings.HasPrefix(syncWorkspace(downDir, root).Files[0], "~ ") {
-				modified = append(modified, f)
-			}
-		}
-		_ = fullPath
-	}
-	// Simplified: just return paths from the result
-	return
-}
-
-// syncAddURL fetches a URL and stores it in .down/data/ as markdown.
-// This is a dedicated sub-command for webpage ingestion.
 var syncAdd = cobra.Command{
 	Use:   "add <url>",
 	Short: "Fetch URL and store as markdown in .down/data/",
@@ -394,17 +822,14 @@ Useful for archiving online documentation, articles, or API references.`,
 		dataDir := filepath.Join(downDir, "data")
 		os.MkdirAll(dataDir, 0755)
 
-		// Fetch and convert using add package
 		content, err := add.FetchURL(url)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error fetching URL: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Generate filename from URL
 		domain := strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
 		filename := strings.ReplaceAll(domain, ".", "_") + ".md"
-		// Keep URL path structure
 		if strings.Contains(filename, "/") {
 			filename = strings.ReplaceAll(filename, "/", "_")
 		}
@@ -419,9 +844,17 @@ Useful for archiving online documentation, articles, or API references.`,
 }
 
 func init() {
-	Sync.Flags().BoolVarP(&syncForce, "force", "f", false, "Force re-index all files")
+	Sync.Flags().BoolVarP(&syncForce, "force", "f", false, "Force full rebuild of all indices and embeddings")
 	Sync.Flags().BoolVarP(&syncVerbose, "verbose", "v", false, "Show detailed output")
 	Sync.Flags().BoolVar(&syncDryRun, "dry-run", false, "Show what would change without modifying")
+
+	syncSkills.Flags().StringVarP(&skillsOutput, "output", "o", "", "Output path (default: SKILL.md in workspace root)")
+	syncSkills.Flags().StringVarP(&skillsProfile, "profile", "p", "", "Profile name for AI settings (default: none)")
+	syncSkills.Flags().BoolVar(&skillsNoFS, "no-fs", false, "Skip filesystem structure detection")
+	syncSkills.Flags().BoolVar(&skillsNoKB, "no-kb", false, "Skip knowledge graph entities")
+	syncSkills.Flags().BoolVar(&skillsNoMemory, "no-memory", false, "Skip memory entries")
+	syncSkills.Flags().BoolVar(&skillsNoVector, "no-vector", false, "Skip vector/semantic topics")
+	syncSkills.Flags().BoolVar(&skillsNoData, "no-data", false, "Skip ingested data references")
 
 	Sync.AddCommand(&syncAdd)
 	Sync.AddCommand(&syncData)
@@ -430,5 +863,6 @@ func init() {
 	Sync.AddCommand(&syncContext)
 	Sync.AddCommand(&syncVector)
 	Sync.AddCommand(&syncWeb)
+	Sync.AddCommand(&syncSkills)
 	initGit()
 }

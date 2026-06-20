@@ -351,7 +351,7 @@ func embedQuery(text string, dim int) []float64 {
 	for _, v := range vec {
 		norm += v * v
 	}
-	norm = sqrt(norm)
+	norm = math.Sqrt(norm)
 	if norm > 0 {
 		for i := range vec {
 			vec[i] /= norm

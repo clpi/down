@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clpi/down/lsp/ai"
 	"github.com/clpi/down/lsp/knowledge"
 	"github.com/spf13/cobra"
 )
@@ -353,7 +354,7 @@ var vectorIndexAll = cobra.Command{
 }
 
 // updateVectorStore updates embeddings for changed/added files
-func updateVectorStore(downDir, root string, added, modified []string) int {
+func UpdateVectorStore(downDir, root string, added, modified []string) int {
 	vDir := filepath.Join(downDir, "vector")
 	os.MkdirAll(vDir, 0755)
 
@@ -404,12 +405,129 @@ func truncateText(s string, maxLen int) string {
 
 func init() {
 	vectorIndex.Flags().IntVarP(&vecDim, "dim", "d", 384, "Vector dimension")
+	vectorCluster.Flags().IntVarP(&clusterK, "k", "k", 5, "Number of clusters")
+	vectorDedup.Flags().Float64VarP(&dedupThreshold, "threshold", "t", 0.92, "Similarity threshold for duplicates")
 	Vector.AddCommand(&vectorIndex)
 	Vector.AddCommand(&vectorSearch)
 	Vector.AddCommand(&vectorList)
 	Vector.AddCommand(&vectorDelete)
 	Vector.AddCommand(&vectorIndexKB)
 	Vector.AddCommand(&vectorIndexAll)
+	Vector.AddCommand(&vectorCluster)
+	Vector.AddCommand(&vectorDedup)
+	Vector.AddCommand(&vectorStats)
+	Vector.AddCommand(&vectorCompare)
 	vectorIndexKB.Flags().StringVar(&vecKBPath, "knowledge", "", "Path to knowledge.json")
 	vectorIndexAll.Flags().IntVarP(&vecDim, "dim", "d", 384, "Vector dimension")
+}
+
+var clusterK int
+var dedupThreshold float64
+
+var vectorCluster = cobra.Command{
+	Use:   "cluster",
+	Short: "Run k-means clustering on embeddings",
+	Long:  "Group embeddings into k clusters and display topic labels for each.",
+	Run: func(cmd *cobra.Command, args []string) {
+		vDir := workspaceVectorDir()
+		entries := loadEntries(vDir)
+		if len(entries) == 0 {
+			fmt.Println("No embeddings to cluster")
+			return
+		}
+
+		emb := ai.NewLocalEmbedding(ai.DefaultEmbeddingConfig())
+		for _, e := range entries {
+			emb.StoreEmbedding(e.Source, e.Text)
+		}
+
+		k := clusterK
+		if k == 0 {
+			k = 5
+		}
+		result := emb.Cluster(k, 20)
+
+		clusterMembers := make(map[int][]string)
+		for id, c := range result.Assignments {
+			clusterMembers[c] = append(clusterMembers[c], id)
+		}
+
+		fmt.Printf("K-means clustering (k=%d):\n\n", k)
+		for c := 0; c < k; c++ {
+			label := strings.Join(result.Labels[c], ", ")
+			fmt.Printf("=== Cluster %d: %s ===\n", c, label)
+			for _, id := range clusterMembers[c] {
+				fmt.Printf("  - %s\n", id)
+			}
+			fmt.Println()
+		}
+	},
+}
+
+var vectorDedup = cobra.Command{
+	Use:   "dedup",
+	Short: "Find near-duplicate embeddings",
+	Long:  "Detect embedding pairs with similarity above the threshold.",
+	Run: func(cmd *cobra.Command, args []string) {
+		vDir := workspaceVectorDir()
+		entries := loadEntries(vDir)
+		if len(entries) == 0 {
+			fmt.Println("No embeddings")
+			return
+		}
+
+		emb := ai.NewLocalEmbedding(ai.DefaultEmbeddingConfig())
+		for _, e := range entries {
+			emb.StoreEmbedding(e.Source, e.Text)
+		}
+
+		threshold := dedupThreshold
+		if threshold == 0 {
+			threshold = 0.92
+		}
+		dups := emb.Dedup(threshold)
+
+		if len(dups) == 0 {
+			fmt.Printf("No near-duplicates found (threshold=%.2f)\n", threshold)
+			return
+		}
+		fmt.Printf("Near-duplicates (threshold=%.2f):\n", threshold)
+		for _, d := range dups {
+			fmt.Printf("  %.4f  %s  <->  %s\n", d.Score, d.ID1, d.ID2)
+		}
+	},
+}
+
+var vectorStats = cobra.Command{
+	Use:   "stats",
+	Short: "Show embedding quality statistics",
+	Run: func(cmd *cobra.Command, args []string) {
+		vDir := workspaceVectorDir()
+		entries := loadEntries(vDir)
+
+		emb := ai.NewLocalEmbedding(ai.DefaultEmbeddingConfig())
+		for _, e := range entries {
+			emb.StoreEmbedding(e.Source, e.Text)
+		}
+
+		s := emb.Stats()
+		fmt.Printf("Embedding Statistics:\n")
+		fmt.Printf("  Count:      %d\n", s.Count)
+		fmt.Printf("  Dimension:  %d\n", s.Dim)
+		fmt.Printf("  Sparsity:   %.4f\n", s.Sparsity)
+		fmt.Printf("  Mean norm:  %.4f\n", s.MeanNorm)
+		fmt.Printf("  Coverage:   %.4f\n", s.Coverage)
+	},
+}
+
+var vectorCompare = cobra.Command{
+	Use:   "compare <text-a> <text-b>",
+	Short: "Compare two texts for semantic similarity",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		emb := ai.NewLocalEmbedding(ai.DefaultEmbeddingConfig())
+		score, shared := emb.Compare(args[0], args[1])
+		fmt.Printf("Similarity: %.4f\n", score)
+		fmt.Printf("Shared terms (%d): %s\n", len(shared), strings.Join(shared, ", "))
+	},
 }

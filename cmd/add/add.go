@@ -385,7 +385,6 @@ func enhancedHTMLToMarkdown(html string) string {
 	var out strings.Builder
 	inTag := false
 	inPre := false
-	inCode := false
 	inList := false
 
 	i := 0
@@ -462,9 +461,9 @@ func enhancedHTMLToMarkdown(html string) string {
 			case "code":
 				// Inline code
 				out.WriteString("`")
-				inCode = true
+				// inline code
 			case "/code":
-				inCode = false
+				// end inline code
 				out.WriteString("`")
 			case "a":
 				href := extractAttr(tag, "href")
@@ -501,7 +500,7 @@ func enhancedHTMLToMarkdown(html string) string {
 				out.WriteString("*")
 			case "/i":
 				out.WriteString("*")
-			case "/span", "/strong", "/em", "/b", "/i", "/u":
+			case "/span", "/u":
 				// No-op for closing tags
 			case "span":
 				// Span can contain inline elements, just continue
