@@ -41,6 +41,7 @@ import (
 	"github.com/clpi/down/cmd/upgrade"
 	cmdutil "github.com/clpi/down/cmd/util"
 	"github.com/clpi/down/cmd/vector"
+	"github.com/clpi/down/cmd/watch"
 	"github.com/clpi/down/cmd/workspace"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -95,6 +96,7 @@ func Configure() {
 	Down.AddCommand(&downctx.Context)
 	Down.AddCommand(&publish.Publish)
 	Down.AddCommand(&vector.Vector)
+	Down.AddCommand(&watch.Watch)
 	Down.AddCommand(&todo.Todo)
 	Down.AddCommand(&upgrade.Upgrade)
 }
