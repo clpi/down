@@ -74,10 +74,6 @@ var (
 		return i
 	}
 	Completions = func(i []protocol.CompletionItem) []protocol.CompletionItem {
-		items := append([]protocol.CompletionItem{})
-		for _, c := range i {
-			items = append(items, c)
-		}
-		return items
+		return append([]protocol.CompletionItem{}, i...)
 	}
 )

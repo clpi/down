@@ -9,11 +9,11 @@ var (
 
 type (
 	Template struct {
-		Body        string               `json:"body",yaml:"body"`
-		Description string               `json:"description",yaml:"description"`
-		Document    protocol.DocumentUri `json:"document",yaml:"document"`
-		Workspace   string               `json:"workspace",yaml:"workspace"`
-		URI         protocol.URI         `json:"uri",yaml:"uri"`
+		Body        string               `json:"body" yaml:"body"`
+		Description string               `json:"description" yaml:"description"`
+		Document    protocol.DocumentUri `json:"document" yaml:"document"`
+		Workspace   string               `json:"workspace" yaml:"workspace"`
+		URI         protocol.URI         `json:"uri" yaml:"uri"`
 	}
 	Log struct {
 		Body string

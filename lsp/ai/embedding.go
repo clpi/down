@@ -130,10 +130,12 @@ func NewLocalEmbedding(config EmbeddingConfig) *LocalEmbedding {
 func (le *LocalEmbedding) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	results := make([][]float32, len(texts))
 	for i, text := range texts {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
 		}
 		results[i] = le.embedText(text)
 	}

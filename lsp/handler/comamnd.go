@@ -43,6 +43,7 @@ var (
 		"down.task.new",
 		"down.task.today",
 		"down.task.list",
+		"down.database.list",
 		"down.task.toggle",
 		"down.task.delete",
 		"down.log.index",
@@ -135,6 +136,8 @@ func (s *State) Command(c *glsp.Context, p *protocol.ExecuteCommandParams) (any,
 		return s.cmdBacklinks(args)
 	case "down.task.list":
 		return s.ComputeTasks(), nil
+	case "down.database.list":
+		return s.ComputeDatabases(), nil
 	case "down.task.toggle":
 		return s.cmdTaskToggle(c, args)
 	case "down.template.new":
@@ -476,10 +479,11 @@ func (s *State) cmdTemplateNew(args []interface{}) (any, error) {
 	}
 	// Create in first workspace's .down/templates/
 	for _, ws := range s.Workspaces {
-		dir := ws.TemplatesPath()
+		dir := filepath.Join(ws.URI, ws.Settings.TemplatesDir)
 		if dir == "" {
 			continue
 		}
+		os.MkdirAll(dir, 0755)
 		content := fmt.Sprintf("# %s\n\n", name)
 		path := filepath.Join(dir, name+".md")
 		front := fmt.Sprintf("---\ntype: %s\n---\n\n", tmplType)
@@ -495,8 +499,7 @@ func (s *State) cmdTemplateOpen(args []interface{}) (any, error) {
 	}
 	name, _ := args[0].(string)
 	for _, ws := range s.Workspaces {
-		dir := ws.TemplatesPath()
-		path := filepath.Join(dir, name+".md")
+		path := filepath.Join(ws.URI, ws.Settings.TemplatesDir, name+".md")
 		if data, err := os.ReadFile(path); err == nil {
 			return string(data), nil
 		}
@@ -510,8 +513,7 @@ func (s *State) cmdTemplateDelete(args []interface{}) (any, error) {
 	}
 	name, _ := args[0].(string)
 	for _, ws := range s.Workspaces {
-		dir := ws.TemplatesPath()
-		path := filepath.Join(dir, name+".md")
+		path := filepath.Join(ws.URI, ws.Settings.TemplatesDir, name+".md")
 		if err := os.Remove(path); err == nil {
 			return fmt.Sprintf("Deleted template: %s", name), nil
 		}
@@ -522,8 +524,7 @@ func (s *State) cmdTemplateDelete(args []interface{}) (any, error) {
 func (s *State) cmdTemplateIndex() (any, error) {
 	var items []string
 	for _, ws := range s.Workspaces {
-		dir := ws.TemplatesPath()
-		entries, _ := os.ReadDir(dir)
+		entries, _ := os.ReadDir(filepath.Join(ws.URI, ws.Settings.TemplatesDir))
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
 				items = append(items, strings.TrimSuffix(e.Name(), ".md"))

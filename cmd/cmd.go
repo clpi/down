@@ -9,6 +9,7 @@ import (
 	"github.com/clpi/down/cmd/compact"
 	"github.com/clpi/down/cmd/config"
 	downctx "github.com/clpi/down/cmd/context"
+	dbcmd "github.com/clpi/down/cmd/database"
 	"github.com/clpi/down/cmd/delete"
 	"github.com/clpi/down/cmd/export"
 	"github.com/clpi/down/cmd/find"
@@ -28,6 +29,7 @@ import (
 	"github.com/clpi/down/cmd/repomix"
 	"github.com/clpi/down/cmd/serve"
 	"github.com/clpi/down/cmd/shell"
+	"github.com/clpi/down/cmd/similar"
 	"github.com/clpi/down/cmd/skills"
 	"github.com/clpi/down/cmd/snippet"
 	"github.com/clpi/down/cmd/status"
@@ -73,6 +75,7 @@ func Configure() {
 	Down.AddCommand(&delete.Delete)
 	Down.AddCommand(&export.Export)
 	Down.AddCommand(&sync.Sync)
+	Down.AddCommand(&similar.Similar)
 	Down.AddCommand(&status.Status)
 	Down.AddCommand(&snippet.Snippet)
 	Down.AddCommand(&template.Template)
@@ -80,6 +83,7 @@ func Configure() {
 	Down.AddCommand(&mcp.Mcp)
 	Down.AddCommand(&compact.Compact)
 	Down.AddCommand(&generate.Generate)
+	Down.AddCommand(&dbcmd.Database)
 	Down.AddCommand(&skills.Skills)
 	Down.AddCommand(&add.Add)
 	Down.AddCommand(&remove.Remove)

@@ -41,6 +41,7 @@ var (
 	syncForce   bool
 	syncVerbose bool
 	syncDryRun  bool
+	syncAll     bool
 )
 
 func findDownDir(root string) string {
@@ -936,6 +937,14 @@ Runs sub-syncs in order: data → knowledge → memory → context → vector �
 			fmt.Println("  web/       up to date")
 		}
 
+		// Full sync: generate skills too
+		if syncAll {
+			sd := gatherSkillData(downDir, root)
+			md := generateSkillsMarkdown(sd)
+			os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(md), 0644)
+			fmt.Println("  skills/    SKILL.md generated")
+		}
+
 		fmt.Println("\nWorkspace synced.")
 	},
 }
@@ -1093,6 +1102,7 @@ func init() {
 	Sync.Flags().BoolVarP(&syncForce, "force", "f", false, "Force full rebuild of all indices and embeddings")
 	Sync.Flags().BoolVarP(&syncVerbose, "verbose", "v", false, "Show detailed output")
 	Sync.Flags().BoolVar(&syncDryRun, "dry-run", false, "Show what would change without modifying")
+	Sync.Flags().BoolVarP(&syncAll, "all", "a", false, "Full sync including skills generation")
 
 	syncSkills.Flags().StringVarP(&skillsOutput, "output", "o", "", "Output path (default: SKILL.md in workspace root)")
 	syncSkills.Flags().StringVarP(&skillsProfile, "profile", "p", "", "Profile name for AI settings (default: none)")
