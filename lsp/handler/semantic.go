@@ -52,7 +52,7 @@ func (s *State) Delta(_ *glsp.Context, _ *protocol.SemanticTokensDeltaParams) (a
 	return nil, nil
 }
 
-func (s *State) Refresh(_ *glsp.Context) error {
+func (s *State) Refresh(ctx *glsp.Context) error {
 	return nil
 }
 

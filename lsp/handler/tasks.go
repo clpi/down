@@ -3,6 +3,8 @@ package handler
 import (
 	"regexp"
 	"strings"
+
+	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
 // Task represents a markdown task item (e.g. - [ ] or - [x])
@@ -47,4 +49,52 @@ func (s *State) ComputeTasks() *TasksResult {
 	}
 	result.Count = len(result.Tasks)
 	return result
+}
+
+// TaskToggleEdit builds a workspace edit that toggles a task checkbox on the given line.
+func (s *State) TaskToggleEdit(uri string, line int) *protocol.WorkspaceEdit {
+	text, ok := s.Documents[uri]
+	if !ok {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	if line < 0 || line >= len(lines) {
+		return nil
+	}
+
+	current := lines[line]
+	m := reTask.FindStringSubmatchIndex(current)
+	if m == nil {
+		return nil
+	}
+
+	checkStart := strings.Index(current[m[0]:m[1]], "[") + m[0]
+	checkEnd := checkStart + 3
+	if checkEnd > len(current) {
+		return nil
+	}
+	checkbox := current[checkStart:checkEnd]
+	var newCheckbox string
+	switch checkbox {
+	case "[ ]":
+		newCheckbox = "[x]"
+	case "[x]", "[X]":
+		newCheckbox = "[ ]"
+	default:
+		return nil
+	}
+
+	return &protocol.WorkspaceEdit{
+		Changes: map[protocol.DocumentUri][]protocol.TextEdit{
+			protocol.DocumentUri(uri): {
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: protocol.UInteger(line), Character: protocol.UInteger(checkStart)},
+						End:   protocol.Position{Line: protocol.UInteger(line), Character: protocol.UInteger(checkEnd)},
+					},
+					NewText: newCheckbox,
+				},
+			},
+		},
+	}
 }

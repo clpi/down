@@ -119,7 +119,10 @@ func TemplateCompletions(i []protocol.CompletionItem, query string, downDir stri
 			continue
 		}
 		name := e.Name()
-		nameNoExt := strings.TrimSuffix(name, filepath.Ext(name))
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		nameNoExt := strings.TrimSuffix(name, ".md")
 		if query != "" && !strings.HasPrefix(strings.ToLower(nameNoExt), strings.ToLower(query)) {
 			continue
 		}
@@ -131,6 +134,25 @@ func TemplateCompletions(i []protocol.CompletionItem, query string, downDir stri
 			Kind:             &templateKind,
 			Detail:           &detail,
 			Documentation:    Documentation("Use template `" + name + "`"),
+			CommitCharacters: CommitCharacters,
+		})
+	}
+
+	// Also offer built-in templates
+	for _, bt := range DefaultDocTemplates {
+		if query != "" && !strings.HasPrefix(strings.ToLower(bt.Name), strings.ToLower(query)) {
+			continue
+		}
+		insert := bt.Content
+		detail := bt.Description + " (built-in)"
+		snippetKind := protocol.CompletionItemKindSnippet
+		items = append(items, protocol.CompletionItem{
+			Label:            bt.Name,
+			InsertText:       &insert,
+			InsertTextFormat: &SnippetFormat,
+			Kind:             &snippetKind,
+			Detail:           &detail,
+			Documentation:    Documentation(bt.Description),
 			CommitCharacters: CommitCharacters,
 		})
 	}

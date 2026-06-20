@@ -123,7 +123,7 @@ func (s *State) DidSave(ctx *glsp.Context, params *protocol.DidSaveTextDocumentP
 		s.Documents[uri] = *params.Text
 		knowledge.ExtractFromDocument(s.Graph, uri, *params.Text)
 		s.Graph.Save()
-		s.publishDiagnostics(ctx, uri, *params.Text)
+		s.postDocumentChange(ctx, uri, *params.Text)
 	}
 	return nil
 }
@@ -151,17 +151,22 @@ func (s *State) DidOpen(ctx *glsp.Context, params *protocol.DidOpenTextDocumentP
 	text := params.TextDocument.Text
 	s.Documents[uri] = text
 	knowledge.ExtractFromDocument(s.Graph, uri, text)
-	s.publishDiagnostics(ctx, uri, text)
+	s.postDocumentChange(ctx, uri, text)
 	return nil
 }
 
-func (s *State) DidChange(context *glsp.Context, params *protocol.DidChangeTextDocumentParams) error {
+func (s *State) DidChange(ctx *glsp.Context, params *protocol.DidChangeTextDocumentParams) error {
 	uri := string(params.TextDocument.URI)
+	var latest string
 	for _, change := range params.ContentChanges {
 		if c, ok := change.(protocol.TextDocumentContentChangeEventWhole); ok {
+			latest = c.Text
 			s.Documents[uri] = c.Text
 			knowledge.ExtractFromDocument(s.Graph, uri, c.Text)
 		}
+	}
+	if latest != "" {
+		s.postDocumentChange(ctx, uri, latest)
 	}
 	return nil
 }

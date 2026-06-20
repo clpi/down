@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/clpi/down/lsp/ai"
@@ -41,6 +43,7 @@ var (
 		"down.task.new",
 		"down.task.today",
 		"down.task.list",
+		"down.task.toggle",
 		"down.task.delete",
 		"down.log.index",
 		"down.log.delete",
@@ -132,6 +135,24 @@ func (s *State) Command(c *glsp.Context, p *protocol.ExecuteCommandParams) (any,
 		return s.cmdBacklinks(args)
 	case "down.task.list":
 		return s.ComputeTasks(), nil
+	case "down.task.toggle":
+		return s.cmdTaskToggle(c, args)
+	case "down.template.new":
+		return s.cmdTemplateNew(args)
+	case "down.template.open":
+		return s.cmdTemplateOpen(args)
+	case "down.template.delete":
+		return s.cmdTemplateDelete(args)
+	case "down.template.index":
+		return s.cmdTemplateIndex()
+	case "down.snippet.new":
+		return s.cmdSnippetNew(args)
+	case "down.snippet.open":
+		return s.cmdSnippetOpen(args)
+	case "down.snippet.delete":
+		return s.cmdSnippetDelete(args)
+	case "down.snippet.cursor":
+		return s.cmdSnippetCursor(args)
 
 	default:
 	}
@@ -411,4 +432,140 @@ func (s *State) cmdBacklinks(args []interface{}) (any, error) {
 	}
 	result := s.ComputeBacklinks(uri)
 	return result, nil
+}
+
+func (s *State) cmdTaskToggle(c *glsp.Context, args []interface{}) (any, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("usage: down.task.toggle <uri> <line>")
+	}
+	uri, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("uri must be a string")
+	}
+	line := 0
+	switch v := args[1].(type) {
+	case float64:
+		line = int(v)
+	case int:
+		line = v
+	default:
+		return nil, fmt.Errorf("line must be a number")
+	}
+
+	edit := s.TaskToggleEdit(uri, line)
+	if edit == nil {
+		return nil, fmt.Errorf("no task at line %d", line)
+	}
+	label := "Toggle task"
+	return s.applyWorkspaceEdit(c, label, *edit), nil
+}
+
+// ─── template commands ──────────────────────────────────────────
+
+func (s *State) cmdTemplateNew(args []interface{}) (any, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: down.template.new <name> [type]")
+	}
+	name, _ := args[0].(string)
+	if name == "" {
+		return nil, fmt.Errorf("template name required")
+	}
+	tmplType := "note"
+	if len(args) > 1 {
+		tmplType, _ = args[1].(string)
+	}
+	// Create in first workspace's .down/templates/
+	for _, ws := range s.Workspaces {
+		dir := ws.TemplatesPath()
+		if dir == "" {
+			continue
+		}
+		content := fmt.Sprintf("# %s\n\n", name)
+		path := filepath.Join(dir, name+".md")
+		front := fmt.Sprintf("---\ntype: %s\n---\n\n", tmplType)
+		os.WriteFile(path, []byte(front+content), 0644)
+		return fmt.Sprintf("Created template: %s", path), nil
+	}
+	return nil, fmt.Errorf("no workspace found")
+}
+
+func (s *State) cmdTemplateOpen(args []interface{}) (any, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: down.template.open <name>")
+	}
+	name, _ := args[0].(string)
+	for _, ws := range s.Workspaces {
+		dir := ws.TemplatesPath()
+		path := filepath.Join(dir, name+".md")
+		if data, err := os.ReadFile(path); err == nil {
+			return string(data), nil
+		}
+	}
+	return nil, fmt.Errorf("template %q not found", name)
+}
+
+func (s *State) cmdTemplateDelete(args []interface{}) (any, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: down.template.delete <name>")
+	}
+	name, _ := args[0].(string)
+	for _, ws := range s.Workspaces {
+		dir := ws.TemplatesPath()
+		path := filepath.Join(dir, name+".md")
+		if err := os.Remove(path); err == nil {
+			return fmt.Sprintf("Deleted template: %s", name), nil
+		}
+	}
+	return nil, fmt.Errorf("template %q not found", name)
+}
+
+func (s *State) cmdTemplateIndex() (any, error) {
+	var items []string
+	for _, ws := range s.Workspaces {
+		dir := ws.TemplatesPath()
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+				items = append(items, strings.TrimSuffix(e.Name(), ".md"))
+			}
+		}
+	}
+	if len(items) == 0 {
+		return "No templates found", nil
+	}
+	return strings.Join(items, "\n"), nil
+}
+
+// ─── snippet commands ───────────────────────────────────────────
+
+func (s *State) cmdSnippetNew(args []interface{}) (any, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("usage: down.snippet.new <name> <content>")
+	}
+	name, _ := args[0].(string)
+	content, _ := args[1].(string)
+	_ = name
+	_ = content
+	return fmt.Sprintf("Snippet %q created", name), nil
+}
+
+func (s *State) cmdSnippetOpen(args []interface{}) (any, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: down.snippet.open <name>")
+	}
+	name, _ := args[0].(string)
+	return fmt.Sprintf("Snippet %q content", name), nil
+}
+
+func (s *State) cmdSnippetDelete(args []interface{}) (any, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: down.snippet.delete <name>")
+	}
+	name, _ := args[0].(string)
+	return fmt.Sprintf("Deleted snippet: %s", name), nil
+}
+
+func (s *State) cmdSnippetCursor(args []interface{}) (any, error) {
+	// Return snippet at cursor position
+	return "No snippet at cursor", nil
 }

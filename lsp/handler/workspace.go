@@ -129,12 +129,13 @@ func (s *State) Configure(_ *glsp.Context, _ *protocol.DidChangeConfigurationPar
 }
 
 func (s *State) WorkspaceSymbol(_ *glsp.Context, p *protocol.WorkspaceSymbolParams) ([]protocol.SymbolInformation, error) {
-	if s.Graph == nil || p.Query == "" {
+	query := strings.TrimSpace(p.Query)
+	if query == "" {
 		return []protocol.SymbolInformation{}, nil
 	}
 
-	results := s.Graph.Search(p.Query)
-	symbols := make([]protocol.SymbolInformation, 0, len(results))
+	seen := make(map[string]bool)
+	symbols := make([]protocol.SymbolInformation, 0)
 
 	kindMap := map[knowledge.EntityKind]protocol.SymbolKind{
 		knowledge.KindPerson:   protocol.SymbolKindVariable,
@@ -148,26 +149,103 @@ func (s *State) WorkspaceSymbol(_ *glsp.Context, p *protocol.WorkspaceSymbolPara
 		knowledge.KindCode:     protocol.SymbolKindObject,
 	}
 
-	for _, ent := range results {
-		kind, ok := kindMap[ent.Kind]
-		if !ok {
-			kind = protocol.SymbolKindString
-		}
-		for _, src := range ent.Sources {
-			symbols = append(symbols, protocol.SymbolInformation{
-				Name: ent.Name,
-				Kind: kind,
-				Location: protocol.Location{
-					URI: protocol.DocumentUri(src.URI),
-					Range: protocol.Range{
-						Start: protocol.Position{Line: protocol.UInteger(src.Line), Character: 0},
-						End:   protocol.Position{Line: protocol.UInteger(src.Line), Character: protocol.UInteger(len(ent.Name))},
+	if s.Graph != nil {
+		for _, ent := range s.Graph.Search(query) {
+			kind, ok := kindMap[ent.Kind]
+			if !ok {
+				kind = protocol.SymbolKindString
+			}
+			for _, src := range ent.Sources {
+				key := string(src.URI) + ":" + ent.Name
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				symbols = append(symbols, protocol.SymbolInformation{
+					Name: ent.Name,
+					Kind: kind,
+					Location: protocol.Location{
+						URI: protocol.DocumentUri(src.URI),
+						Range: protocol.Range{
+							Start: protocol.Position{Line: protocol.UInteger(src.Line), Character: 0},
+							End:   protocol.Position{Line: protocol.UInteger(src.Line), Character: protocol.UInteger(len(ent.Name))},
+						},
 					},
-				},
-			})
-			break
+				})
+				break
+			}
 		}
 	}
+
+	lower := strings.ToLower(query)
+	for uri, text := range s.Documents {
+		title := getDocTitle(s.Documents, uri)
+		if title != "" && strings.Contains(strings.ToLower(title), lower) {
+			key := uri + ":doc:" + title
+			if !seen[key] {
+				seen[key] = true
+				symbols = append(symbols, protocol.SymbolInformation{
+					Name: title,
+					Kind: protocol.SymbolKindFile,
+					Location: protocol.Location{
+						URI: protocol.DocumentUri(uri),
+						Range: protocol.Range{
+							Start: protocol.Position{Line: 0, Character: 0},
+							End:   protocol.Position{Line: 0, Character: protocol.UInteger(len(title))},
+						},
+					},
+				})
+			}
+		}
+
+		lines := strings.Split(text, "\n")
+		for i, line := range lines {
+			if m := reTask.FindStringSubmatch(line); m != nil {
+				taskText := strings.TrimSpace(m[2])
+				if strings.Contains(strings.ToLower(taskText), lower) {
+					key := uri + ":task:" + intStr(i)
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					symbols = append(symbols, protocol.SymbolInformation{
+						Name: taskText,
+						Kind: protocol.SymbolKindEvent,
+						Location: protocol.Location{
+							URI: protocol.DocumentUri(uri),
+							Range: protocol.Range{
+								Start: protocol.Position{Line: protocol.UInteger(i), Character: 0},
+								End:   protocol.Position{Line: protocol.UInteger(i), Character: protocol.UInteger(len(line))},
+							},
+						},
+					})
+				}
+			}
+
+			for _, m := range reLinkTag.FindAllStringSubmatchIndex(line, -1) {
+				tag := line[m[2]:m[3]]
+				if strings.Contains(strings.ToLower(tag), lower) {
+					key := uri + ":tag:" + tag
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					symbols = append(symbols, protocol.SymbolInformation{
+						Name: tag,
+						Kind: protocol.SymbolKindKey,
+						Location: protocol.Location{
+							URI: protocol.DocumentUri(uri),
+							Range: protocol.Range{
+								Start: protocol.Position{Line: protocol.UInteger(i), Character: protocol.UInteger(m[2])},
+								End:   protocol.Position{Line: protocol.UInteger(i), Character: protocol.UInteger(m[3])},
+							},
+						},
+					})
+				}
+			}
+		}
+	}
+
 	return symbols, nil
 }
 

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	tmpl "github.com/clpi/down/core/template"
 )
 
 var MarkdownExtensions = map[string]bool{
@@ -99,8 +101,19 @@ func EnsureNoteAt(root string, t time.Time, strategy, templatePath string) (stri
 		content := "# " + t.Format("2006-01-02") + "\n\n"
 		if templatePath != "" {
 			if data, rerr := os.ReadFile(templatePath); rerr == nil {
-				content = strings.ReplaceAll(string(data), "{{date}}", t.Format("2006-01-02"))
-				content = strings.ReplaceAll(content, "{{time}}", t.Format("15:04:05"))
+				content = tmpl.ExpandString(string(data), t)
+			}
+		} else {
+			// Try to find a daily template
+			engine := tmpl.NewEngine(
+				filepath.Join(root, ".down", "templates"),
+				filepath.Join(root, "templates"),
+				filepath.Join(root, "note"),
+			)
+			if applied, err := engine.Apply("daily", map[string]string{
+				"title": t.Format("2006-01-02"),
+			}); err == nil {
+				content = applied
 			}
 		}
 		if werr := os.WriteFile(full, []byte(content), 0644); werr != nil {
