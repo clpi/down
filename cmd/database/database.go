@@ -168,6 +168,36 @@ var dbAddRow = cobra.Command{
 	},
 }
 
+
+var dbUpdateRow = cobra.Command{
+	Use:     "update-row <database>",
+	Short:   "Update a cell in a database row",
+	Aliases: []string{"update", "set"},
+	Args:    cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		root := resolvedDBRoot()
+		d, err := db.FindByName(root, args[0])
+		if err != nil {
+			fail(err)
+		}
+		vals := parseKV(dbValues)
+		rowLine := 0
+		if v, ok := vals["__line"]; ok {
+			fmt.Sscanf(v, "%d", &rowLine)
+			delete(vals, "__line")
+		}
+		if rowLine <= 0 {
+			fail(fmt.Errorf("set __line=<n> to target a table row"))
+		}
+		for col, val := range vals {
+			if err := db.UpdateCell(d.Path, rowLine, col, val); err != nil {
+				fail(err)
+			}
+		}
+		fmt.Printf("Updated row %d in %s\n", rowLine, d.Path)
+	},
+}
+
 var dbExport = cobra.Command{
 	Use:   "export <database>",
 	Short: "Export database rows to CSV or markdown",
@@ -221,7 +251,12 @@ func applyQuery(d *db.Database) []db.Row {
 	if len(sorts) > 0 {
 		rows = db.SortRows(rows, sorts)
 	}
-	return rows
+	root := resolvedDBRoot()
+	ctx, err := db.LoadWorkspaceContext(root)
+	if err != nil {
+		return db.ResolveComputed(d, rows, nil)
+	}
+	return db.ResolveComputed(d, rows, ctx)
 }
 
 func renderView(d *db.Database, rows []db.Row) string {
@@ -303,7 +338,7 @@ func fail(err error) {
 
 func init() {
 	Database.PersistentFlags().StringVarP(&dbRoot, "root", "r", ".", "Workspace root")
-	for _, c := range []*cobra.Command{&dbList, &dbShow, &dbQuery, &dbView, &dbCreate, &dbAddRow, &dbExport} {
+	for _, c := range []*cobra.Command{&dbList, &dbShow, &dbQuery, &dbView, &dbCreate, &dbAddRow, &dbUpdateRow, &dbExport} {
 		Database.AddCommand(c)
 	}
 	dbQuery.Flags().StringVarP(&dbOutput, "output", "o", "", "Write view to file")
@@ -322,6 +357,7 @@ func init() {
 	dbCreate.Flags().StringVar(&dbSchema, "schema", "tasks", "Schema preset: tasks, projects, blank")
 	dbCreate.Flags().BoolVar(&dbOpen, "open", false, "Print path for editor to open")
 	dbAddRow.Flags().StringArrayVar(&dbValues, "set", nil, "Column values: title=Foo")
+	dbUpdateRow.Flags().StringArrayVar(&dbValues, "set", nil, "Cell values: __line=3 title=Foo")
 	dbExport.Flags().StringVarP(&dbOutput, "output", "o", "", "Output file")
 	dbExport.Flags().StringVar(&dbViewType, "format", "csv", "Export format: csv, md")
 }

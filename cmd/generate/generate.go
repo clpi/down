@@ -836,6 +836,7 @@ func renderCalendar(root string) string {
 	return b.String()
 }
 
+
 func renderIndex(paths map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Generated Workspace Reports\n\n")
@@ -854,6 +855,7 @@ func renderIndex(paths map[string]string) string {
 		"orphans.md",
 		"entities.md",
 		"graph.md",
+		"databases.md",
 	}
 	for _, n := range names {
 		if p, ok := paths[n]; ok {
@@ -882,7 +884,8 @@ Writes output to .down/generated/ by default:
   mentions.md     — @mention index
   backlinks.md    — backlink counts and top referrers
   orphans.md      — documents with no inbound links
-  entities.md     — knowledge graph entity listing`,
+  entities.md     — knowledge graph entity listing
+  databases.md    — Notion-style database index with schemas`,
 	Run: func(cmd *cobra.Command, args []string) {
 		runAll()
 	},
@@ -973,6 +976,12 @@ func runAll() {
 	}
 	paths["graph.md"] = p
 
+	p, err = writeOutput(root, "databases.md", renderDatabases(root))
+	if err != nil {
+		finish("", err)
+	}
+	paths["databases.md"] = p
+
 	idx, err := writeOutput(root, "index.md", renderIndex(paths))
 	if err != nil {
 		finish("", err)
@@ -983,7 +992,7 @@ func runAll() {
 	for _, n := range []string{
 		"stats.md", "daily-notes.md", "calendar.md", "toc.md", "tasks.md",
 		"links.md", "tags.md", "mentions.md", "backlinks.md", "orphans.md",
-		"entities.md", "graph.md", "index.md",
+		"entities.md", "graph.md", "databases.md", "index.md",
 	} {
 		if path, ok := paths[n]; ok {
 			fmt.Printf("  %s\n", path)
@@ -1133,6 +1142,17 @@ var genCalendar = cobra.Command{
 		finish(path, err)
 	},
 }
+var genDatabases = cobra.Command{
+	Use:     "databases",
+	Aliases: []string{"database", "db", "dbs"},
+	Short:   "Generate workspace databases index",
+	Run: func(cmd *cobra.Command, args []string) {
+		root := resolvedRoot()
+		path, err := writeOutput(root, "databases.md", renderDatabases(root))
+		finish(path, err)
+	},
+}
+
 var genNotes = cobra.Command{
 	Use:     "notes",
 	Aliases: []string{"journal"},
@@ -1163,5 +1183,6 @@ func init() {
 	Generate.AddCommand(&genStats)
 	Generate.AddCommand(&genEntities)
 	Generate.AddCommand(&genCalendar)
+	Generate.AddCommand(&genDatabases)
 	Generate.AddCommand(&genNotes)
 }

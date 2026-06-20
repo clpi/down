@@ -10,6 +10,7 @@ type FieldDef struct {
 	Relation  string   `json:"relation,omitempty"`
 	Target    string   `json:"target,omitempty"`
 	Aggregate string   `json:"aggregate,omitempty"`
+	Database  string   `json:"database,omitempty"`
 }
 
 // NormalizeSchema converts frontmatter schema maps into FieldDef values.
@@ -52,6 +53,12 @@ func NormalizeSchema(raw map[string]any) map[string]FieldDef {
 			}
 			if v, ok := t["aggregate"]; ok {
 				fd.Aggregate = asString(v)
+			}
+			if v, ok := t["database"]; ok {
+				fd.Database = asString(v)
+			}
+			if v, ok := t["target_database"]; ok && fd.Database == "" {
+				fd.Database = asString(v)
 			}
 			if opts, ok := t["options"]; ok {
 				fd.Options = stringSlice(opts)

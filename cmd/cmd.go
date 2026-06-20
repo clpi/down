@@ -24,6 +24,7 @@ import (
 	"github.com/clpi/down/cmd/memory"
 	"github.com/clpi/down/cmd/new"
 	"github.com/clpi/down/cmd/note"
+	"github.com/clpi/down/cmd/open"
 	"github.com/clpi/down/cmd/profile"
 	"github.com/clpi/down/cmd/publish"
 	"github.com/clpi/down/cmd/remove"
@@ -71,6 +72,7 @@ func Configure() {
 	Down.AddCommand(&tag.Tag)
 	Down.AddCommand(&new.New)
 	Down.AddCommand(&note.Note)
+	Down.AddCommand(&open.Open)
 	Down.AddCommand(&link.Link)
 	Down.AddCommand(&shell.Shell)
 	Down.AddCommand(&serve.Serve)

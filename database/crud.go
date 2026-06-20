@@ -144,3 +144,42 @@ func AddRow(path string, values map[string]string) error {
 	out := append(lines[:insertAt], append([]string{rowLine}, lines[insertAt:]...)...)
 	return os.WriteFile(path, []byte(strings.Join(out, "\n")), 0644)
 }
+
+// UpdateCell updates a single cell in a database table row.
+func UpdateCell(path string, rowLine int, column string, value string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	if rowLine < 1 || rowLine > len(lines) {
+		return fmt.Errorf("row line out of range: %d", rowLine)
+	}
+	db := Parse(string(data))
+	cols := db.Headers
+	if len(cols) == 0 {
+		cols = db.ColumnNames()
+	}
+	colIdx := -1
+	column = strings.TrimSpace(column)
+	for i, c := range cols {
+		if strings.EqualFold(strings.TrimSpace(c), column) {
+			colIdx = i
+			break
+		}
+	}
+	if colIdx < 0 {
+		return fmt.Errorf("column not found: %s", column)
+	}
+	cells := splitTableRow(lines[rowLine-1])
+	if cells == nil {
+		return fmt.Errorf("not a table row at line %d", rowLine)
+	}
+	for len(cells) < len(cols) {
+		cells = append(cells, "")
+	}
+	cells[colIdx] = value
+	lines[rowLine-1] = "| " + strings.Join(cells, " | ") + " |"
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644)
+}
+

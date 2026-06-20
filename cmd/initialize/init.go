@@ -71,6 +71,34 @@ func initWorkspace(root, name string, wiki bool) {
 	}
 
 	fmt.Printf("Workspace initialized at %s\n", downDir)
+
+	// Create default templates
+	createDefaultTemplates(downDir)
+}
+
+func createDefaultTemplates(downDir string) {
+	tmplDir := filepath.Join(downDir, "templates")
+	os.MkdirAll(tmplDir, 0755)
+
+	defaults := map[string]string{
+		"daily.md":   "---\ntype: daily\ncategory: journal\ndescription: Daily journal entry\n---\n\n# {{date}}\n\n## Morning\n\n## Work Log\n\n- \n\n## Evening\n\n## Gratitude\n\n- \n",
+		"meeting.md": "---\ntype: meeting\ncategory: work\ndescription: Meeting notes with agenda and action items\n---\n\n# Meeting: {{title}}\n\n**Date:** {{date}}\n**Time:** {{time}}\n**Attendees:** \n\n## Agenda\n\n- \n\n## Notes\n\n## Action Items\n\n- [ ] \n",
+		"project.md": "---\ntype: project\ncategory: work\ndescription: Project overview with goals and timeline\n---\n\n# Project: {{title}}\n\n**Status:** in-progress\n**Start:** {{date}}\n**Target:** \n\n## Goals\n\n- \n\n## Timeline\n\n| Phase | Status | Date |\n|-------|--------|------|\n| Planning | done | |\n| Execution | in-progress | |\n| Review | pending | |\n\n## Notes\n",
+		"weekly.md":  "---\ntype: weekly\ncategory: journal\ndescription: Weekly review and planning\n---\n\n# Week {{iso_week}}\n\n**{{date}}**\n\n## Highlights\n\n- \n\n## Monday\n## Tuesday\n## Wednesday\n## Thursday\n## Friday\n\n## Next Week\n",
+		"monthly.md": "---\ntype: monthly\ncategory: journal\ndescription: Monthly review\n---\n\n# {{month}} {{year}} Review\n\n## Highlights\n\n- \n\n## By Week\n\n### Week 1\n### Week 2\n### Week 3\n### Week 4\n\n## Stats\n",
+	}
+
+	created := 0
+	for name, content := range defaults {
+		path := filepath.Join(tmplDir, name)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			os.WriteFile(path, []byte(content), 0644)
+			created++
+		}
+	}
+	if created > 0 {
+		fmt.Printf("  Created %d default templates in templates/\n", created)
+	}
 }
 
 var Init = cobra.Command{
