@@ -29,6 +29,14 @@ type FileEntry struct {
 	Synced  string `json:"synced"`
 }
 
+type kbEntity struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	File      string   `json:"file"`
+	Relations []string `json:"relations"`
+}
+
 var (
 	syncForce   bool
 	syncVerbose bool
@@ -356,14 +364,6 @@ func buildKnowledgeBase(downDir, root string) int {
 	allMD := loadMarkdownFiles(root)
 	count := 0
 
-	type kbEntity struct {
-		ID        string   `json:"id"`
-		Name      string   `json:"name"`
-		Kind      string   `json:"kind"`
-		File      string   `json:"file"`
-		Relations []string `json:"relations"`
-	}
-
 	var entities []kbEntity
 	tagIndex := make(map[string]bool)
 	linkIndex := make(map[string][]string)
@@ -424,6 +424,9 @@ func buildKnowledgeBase(downDir, root string) int {
 		})
 		count++
 	}
+
+	// Link memory tags and keys into the knowledge graph
+	entities = linkMemoryToKnowledge(entities, downDir)
 
 	kbPath := filepath.Join(downDir, "knowledge", "entities.json")
 	kbData, _ := json.MarshalIndent(entities, "", "  ")
@@ -611,6 +614,230 @@ func syncMemoryStore(downDir string) int {
 	return len(active)
 }
 
+// embedMemoryEntries embeds active memory entries using the same engine as file embeddings.
+// Writes memory vectors to vector/memory_<key>.json so they're searchable alongside file vectors.
+func embedMemoryEntries(downDir string, emb *ai.LocalEmbedding) int {
+	memDir := filepath.Join(downDir, "memory")
+	vDir := filepath.Join(downDir, "vector")
+	os.MkdirAll(vDir, 0755)
+
+	entries, err := os.ReadDir(memDir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || e.Name() == "index.json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(memDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var mem map[string]interface{}
+		if json.Unmarshal(data, &mem) != nil {
+			continue
+		}
+		key, _ := mem["key"].(string)
+		value, _ := mem["value"].(string)
+		if value == "" {
+			if v, ok := mem["content"]; ok {
+				value, _ = v.(string)
+			}
+		}
+		if key == "" || value == "" {
+			continue
+		}
+
+		vecs, _ := emb.Embed(nil, []string{value})
+		if len(vecs) == 0 {
+			continue
+		}
+		entry := vectorEntry{
+			ID:      "memory_" + sanitizeKey(key),
+			Vector:  vecs[0],
+			Text:    truncateText(value, 500),
+			Source:  "memory/" + key,
+			Created: time.Now().Format(time.RFC3339),
+		}
+		saveVectorEntry(vDir, entry)
+		count++
+	}
+	return count
+}
+
+// linkMemoryToKnowledge adds memory tags and keys to the knowledge graph entities.
+func linkMemoryToKnowledge(entities []kbEntity, downDir string) []kbEntity {
+	memDir := filepath.Join(downDir, "memory")
+	entries, err := os.ReadDir(memDir)
+	if err != nil {
+		return entities
+	}
+
+	tagSet := make(map[string]bool)
+	memKeys := make(map[string][]string) // tag -> memory keys
+
+	for _, ent := range entities {
+		if ent.Kind == "tag" {
+			tagSet[ent.Name] = true
+		}
+	}
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || e.Name() == "index.json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(memDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var mem map[string]interface{}
+		if json.Unmarshal(data, &mem) != nil {
+			continue
+		}
+		key, _ := mem["key"].(string)
+		if key == "" {
+			continue
+		}
+
+		// Add memory key as a concept entity
+		entities = append(entities, kbEntity{
+			ID:        "memory/" + key,
+			Name:      key,
+			Kind:      "concept",
+			File:      "memory",
+			Relations: nil,
+		})
+
+		// Extract tags from memory entry
+		if tags, ok := mem["tags"].([]interface{}); ok {
+			for _, t := range tags {
+				if tag, ok := t.(string); ok && tag != "" {
+					memKeys[tag] = append(memKeys[tag], key)
+					if !tagSet[tag] {
+						tagSet[tag] = true
+						entities = append(entities, kbEntity{
+							ID:   "tag/" + tag,
+							Name: tag,
+							Kind: "tag",
+							File: "",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Add back-links for memory tags
+	for tag, keys := range memKeys {
+		entities = append(entities, kbEntity{
+			ID:        "memtag/" + tag,
+			Name:      tag,
+			Kind:      "concept",
+			File:      strings.Join(keys, ","),
+			Relations: keys,
+		})
+	}
+
+	return entities
+}
+
+// autoTagData uses nearest-neighbor embedding search to suggest tags for data/ content.
+// Writes suggested tags back to the data file frontmatter.
+func autoTagData(downDir string, emb *ai.LocalEmbedding) int {
+	dataDir := filepath.Join(downDir, "data")
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return 0
+	}
+
+	// Collect existing tags from knowledge entities
+	entitiesPath := filepath.Join(downDir, "knowledge", "entities.json")
+	existingTags := make(map[string]bool)
+	if data, err := os.ReadFile(entitiesPath); err == nil {
+		var entities []kbEntity
+		if json.Unmarshal(data, &entities) == nil {
+			for _, ent := range entities {
+				if ent.Kind == "tag" {
+					existingTags[ent.Name] = true
+				}
+			}
+		}
+	}
+
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		fullPath := filepath.Join(dataDir, e.Name())
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			continue
+		}
+		contentStr := string(content)
+
+		// Skip if already has tags
+		if strings.Contains(contentStr, "\ntags:") {
+			continue
+		}
+
+		// Find body (skip frontmatter)
+		body := contentStr
+		if strings.HasPrefix(body, "---\n") {
+			if end := strings.Index(body[4:], "\n---\n"); end > 0 {
+				body = body[4+end+5:]
+			}
+		}
+
+		// Find nearest knowledge entity by embedding similarity
+		vecs, _ := emb.Embed(nil, []string{body})
+		if len(vecs) == 0 {
+			continue
+		}
+
+		var bestTag string
+		var bestScore float32
+		for tag := range existingTags {
+			tagVecs, _ := emb.Embed(nil, []string{tag})
+			if len(tagVecs) > 0 {
+				score := ai.CosineSimilarity(vecs[0], tagVecs[0])
+				if score > 0.3 && score > bestScore {
+					bestScore = score
+					bestTag = tag
+				}
+			}
+		}
+
+		if bestTag == "" {
+			continue
+		}
+
+		// Insert tags: into frontmatter
+		var tagged string
+		if strings.HasPrefix(contentStr, "---\n") {
+			end := strings.Index(contentStr[4:], "\n---\n")
+			if end > 0 {
+				fm := contentStr[4 : 4+end]
+				rest := contentStr[4+end+5:]
+				tagged = "---\n" + fm + "\ntags: " + bestTag + "\n---\n\n" + rest
+				os.WriteFile(fullPath, []byte(tagged), 0644)
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func sanitizeKey(key string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ' ' || r == ':' || r == '.' || r == '@' || r == '#' {
+			return '_'
+		}
+		return r
+	}, key)
+}
+
 func truncateText(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -681,6 +908,25 @@ Runs sub-syncs in order: data → knowledge → memory → context → vector �
 		} else {
 			vc = buildEmbeddings(downDir, root, nil)
 			fmt.Printf("  vector/    %d embeddings checked\n", vc)
+		}
+
+		// Embed memory entries for semantic search
+		emb := ai.NewLocalEmbedding(ai.DefaultEmbeddingConfig())
+		allMD := loadMarkdownFiles(root)
+		var allTexts []string
+		for _, rel := range allMD {
+			if data, err := os.ReadFile(filepath.Join(root, rel)); err == nil {
+				allTexts = append(allTexts, string(data))
+			}
+		}
+		emb.Train(allTexts)
+		if mc2 := embedMemoryEntries(downDir, emb); mc2 > 0 {
+			fmt.Printf("  memory/    %d entries embedded for semantic search\n", mc2)
+		}
+
+		// Auto-tag data/ content using embedding similarity
+		if ac := autoTagData(downDir, emb); ac > 0 {
+			fmt.Printf("  data/      %d files auto-tagged\n", ac)
 		}
 
 		wc := syncWebSources(downDir)

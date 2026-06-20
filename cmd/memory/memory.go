@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clpi/down/lsp/ai"
 	"github.com/spf13/cobra"
 )
 
@@ -186,9 +187,32 @@ var memoryShow = cobra.Command{
 
 var memorySearch = cobra.Command{
 	Use:   "search <query>",
-	Short: "Search memory entries",
+	Short: "Search memory entries (substring by default, --semantic for embeddings)",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		semantic, _ := cmd.Flags().GetBool("semantic")
+		if semantic {
+			results := semanticSearchMemory(args[0])
+			if len(results) == 0 {
+				fmt.Printf("No semantic results for: %s\n", args[0])
+				return
+			}
+			fmt.Printf("Semantic results for \"%s\" (%d):\n\n", args[0], len(results))
+			for _, r := range results {
+				fmt.Printf("## %s (%.3f)\n\n", r.entry.Key, r.score)
+				if len(r.entry.Tags) > 0 {
+					fmt.Printf("Tags: %s\n\n", strings.Join(r.entry.Tags, ", "))
+				}
+				preview := r.entry.Value
+				if len(preview) > 200 {
+					preview = preview[:200] + "..."
+				}
+				fmt.Println(preview)
+				fmt.Println()
+			}
+			return
+		}
+
 		results, err := searchEntries(args[0])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -212,6 +236,48 @@ var memorySearch = cobra.Command{
 			fmt.Println()
 		}
 	},
+}
+
+type scoredMemory struct {
+	entry MemoryEntry
+	score float64
+}
+
+func semanticSearchMemory(query string) []scoredMemory {
+	entries, err := listEntries()
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+
+	emb := ai.NewLocalEmbedding(ai.DefaultEmbeddingConfig())
+
+	// Build vocabulary from all memory values
+	var corpus []string
+	for _, e := range entries {
+		corpus = append(corpus, e.Value)
+	}
+	emb.Train(corpus)
+
+	queryVecs, _ := emb.Embed(nil, []string{query})
+	if len(queryVecs) == 0 {
+		return nil
+	}
+	queryVec := queryVecs[0]
+
+	var results []scoredMemory
+	for _, e := range entries {
+		valVecs, _ := emb.Embed(nil, []string{e.Value})
+		if len(valVecs) == 0 {
+			continue
+		}
+		score := float64(ai.CosineSimilarity(queryVec, valVecs[0]))
+		if score > 0.1 {
+			results = append(results, scoredMemory{entry: e, score: score})
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
+	return results
 }
 
 var memoryDelete = cobra.Command{
@@ -284,6 +350,7 @@ var memoryImport = cobra.Command{
 
 func init() {
 	memoryAdd.Flags().StringArrayP("tag", "t", nil, "Tags for the memory entry")
+	memorySearch.Flags().BoolP("semantic", "s", false, "Use semantic (embedding) search")
 	Memory.AddCommand(&memoryAdd)
 	Memory.AddCommand(&memoryList)
 	Memory.AddCommand(&memoryShow)
