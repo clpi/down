@@ -8,6 +8,15 @@ import (
 	"github.com/clpi/down/cmd/wsutil"
 )
 
+// ListEntry is a lightweight database summary for CLI/JSON consumers.
+type ListEntry struct {
+	Title   string `json:"title"`
+	Path    string `json:"path"`
+	Rel     string `json:"rel"`
+	Rows    int    `json:"rows"`
+	Columns int    `json:"columns"`
+}
+
 // ScanWorkspace finds all databases under root.
 func ScanWorkspace(root string) ([]*Database, error) {
 	files, err := wsutil.WalkMarkdown(root, true)
@@ -32,6 +41,33 @@ func ScanWorkspace(root string) ([]*Database, error) {
 			}
 		}
 		out = append(out, db)
+	}
+	return out, nil
+}
+
+// ListEntries returns database summaries for workspace listing APIs.
+func ListEntries(root, query string) ([]ListEntry, error) {
+	dbs, err := ScanWorkspace(root)
+	if err != nil {
+		return nil, err
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	var out []ListEntry
+	for _, d := range dbs {
+		rel, _ := filepath.Rel(root, d.Path)
+		if query != "" {
+			blob := strings.ToLower(d.Title + " " + rel)
+			if !strings.Contains(blob, query) {
+				continue
+			}
+		}
+		out = append(out, ListEntry{
+			Title:   d.Title,
+			Path:    d.Path,
+			Rel:     rel,
+			Rows:    len(d.Rows),
+			Columns: len(d.ColumnNames()),
+		})
 	}
 	return out, nil
 }

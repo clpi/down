@@ -56,6 +56,13 @@ func (s *State) Completion(
 		return items, nil
 	}
 
+	// Detect callout context: "> [!..." 
+	calloutQuery := s.detectCallout(p)
+	if calloutQuery != nil {
+		items = entries.CalloutCompletions(items, *calloutQuery)
+		return items, nil
+	}
+
 	// Detect header anchor context: [text](#...
 	anchorTrigger, anchorQuery := entries.DetectHeaderAnchorTrigger(
 		s.Documents[string(p.TextDocument.URI)],
@@ -463,4 +470,38 @@ func (s *State) detectFrontmatterField(p *protocol.CompletionParams) (*string, s
 	query := strings.TrimSpace(prefix)
 	empty := ""
 	return &empty, query
+}
+
+// detectCallout checks if the user is typing a callout with "> [!".
+func (s *State) detectCallout(p *protocol.CompletionParams) *string {
+	uri := string(p.TextDocument.URI)
+	doc, ok := s.Documents[uri]
+	if !ok {
+		return nil
+	}
+
+	lines := strings.Split(doc, "\n")
+	lineIdx := int(p.Position.Line)
+	if lineIdx >= len(lines) {
+		return nil
+	}
+	line := lines[lineIdx]
+	col := int(p.Position.Character)
+	if col > len(line) {
+		col = len(line)
+	}
+	prefix := line[:col]
+
+	// Match "> [!TYPE"
+	idx := strings.LastIndex(prefix, "> [!")
+	if idx == -1 {
+		return nil
+	}
+
+	query := prefix[idx+4:]
+	// Don't trigger if already closed with ]
+	if strings.Contains(query, "]") {
+		return nil
+	}
+	return &query
 }

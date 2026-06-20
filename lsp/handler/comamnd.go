@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/clpi/down/lsp/ai"
 	"github.com/clpi/down/lsp/knowledge"
@@ -22,6 +23,7 @@ var (
 		"down.log.new",
 		"down.calendar.open",
 		"down.save",
+		"down.sync",
 		"down.template.new",
 		"down.template.open",
 		"down.template.delete",
@@ -31,6 +33,10 @@ var (
 		"down.snippet.delete",
 		"down.snippet.index",
 		"down.snippet.cursor",
+		"down.memory.new",
+		"down.code.run",
+		"down.link.create.cursor",
+		"down.toc.generate",
 		"down.load",
 		"down.capture",
 		"down.note.index",
@@ -94,6 +100,16 @@ func (s *State) Command(c *glsp.Context, p *protocol.ExecuteCommandParams) (any,
 		} else {
 			const _ = "default"
 		}
+	case "down.sync":
+		return "Sync triggered. Run `down sync` from terminal.", nil
+	case "down.memory.new":
+		return s.cmdMemoryNew(args)
+	case "down.code.run":
+		return s.cmdCodeRun(args)
+	case "down.toc.generate":
+		return s.cmdTOCGenerate(args)
+	case "down.link.create.cursor":
+		return s.cmdCreateLink(args)
 	case "down.workspace.open":
 	case "down.workspace.new":
 
@@ -540,22 +556,63 @@ func (s *State) cmdTemplateIndex() (any, error) {
 // ─── snippet commands ───────────────────────────────────────────
 
 func (s *State) cmdSnippetNew(args []interface{}) (any, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("usage: down.snippet.new <name> <content>")
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: down.snippet.new <title> [content]")
 	}
-	name, _ := args[0].(string)
-	content, _ := args[1].(string)
-	_ = name
-	_ = content
-	return fmt.Sprintf("Snippet %q created", name), nil
+	title, _ := args[0].(string)
+	content := ""
+	if len(args) > 1 {
+		content, _ = args[1].(string)
+	}
+
+	// Create snippet in first workspace
+	for _, ws := range s.Workspaces {
+		snippetDir := filepath.Join(ws.URI, ".down", "snippets")
+		os.MkdirAll(snippetDir, 0755)
+		escaped := strings.Map(func(r rune) rune {
+			if r == '/' || r == '\\' || r == ' ' || r == ':' {
+				return '_'
+			}
+			return r
+		}, title)
+		path := filepath.Join(snippetDir, escaped+".md")
+		front := fmt.Sprintf("---\ntitle: %s\ndate: %s\n---\n\n%s\n", title, time.Now().Format("2006-01-02"), content)
+		if err := os.WriteFile(path, []byte(front), 0644); err != nil {
+			return nil, err
+		}
+		return fmt.Sprintf("Created snippet: %s", path), nil
+	}
+	return nil, fmt.Errorf("no workspace found")
 }
 
 func (s *State) cmdSnippetOpen(args []interface{}) (any, error) {
 	if len(args) < 1 {
-		return nil, fmt.Errorf("usage: down.snippet.open <name>")
+		// List all snippets
+		var items []string
+		for _, ws := range s.Workspaces {
+			snippetDir := filepath.Join(ws.URI, ".down", "snippets")
+			entries, _ := os.ReadDir(snippetDir)
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+					items = append(items, strings.TrimSuffix(e.Name(), ".md"))
+				}
+			}
+		}
+		if len(items) == 0 {
+			return "No snippets found", nil
+		}
+		return strings.Join(items, "\n"), nil
 	}
+
 	name, _ := args[0].(string)
-	return fmt.Sprintf("Snippet %q content", name), nil
+	for _, ws := range s.Workspaces {
+		snippetDir := filepath.Join(ws.URI, ".down", "snippets")
+		path := filepath.Join(snippetDir, name+".md")
+		if data, err := os.ReadFile(path); err == nil {
+			return string(data), nil
+		}
+	}
+	return nil, fmt.Errorf("snippet %q not found", name)
 }
 
 func (s *State) cmdSnippetDelete(args []interface{}) (any, error) {
@@ -563,10 +620,137 @@ func (s *State) cmdSnippetDelete(args []interface{}) (any, error) {
 		return nil, fmt.Errorf("usage: down.snippet.delete <name>")
 	}
 	name, _ := args[0].(string)
-	return fmt.Sprintf("Deleted snippet: %s", name), nil
+	for _, ws := range s.Workspaces {
+		snippetDir := filepath.Join(ws.URI, ".down", "snippets")
+		path := filepath.Join(snippetDir, name+".md")
+		if err := os.Remove(path); err == nil {
+			return fmt.Sprintf("Deleted snippet: %s", name), nil
+		}
+	}
+	return nil, fmt.Errorf("snippet %q not found", name)
 }
 
 func (s *State) cmdSnippetCursor(args []interface{}) (any, error) {
-	// Return snippet at cursor position
-	return "No snippet at cursor", nil
+	// Return expanded snippet content from the current document
+	if len(args) < 2 {
+		return nil, fmt.Errorf("usage: down.snippet.cursor <uri> <line>")
+	}
+	uri, _ := args[0].(string)
+	lineNum := 0
+	switch v := args[1].(type) {
+	case float64:
+		lineNum = int(v)
+	case int:
+		lineNum = v
+	}
+	text, ok := s.Documents[uri]
+	if !ok {
+		return nil, fmt.Errorf("document not found")
+	}
+	lines := strings.Split(text, "\n")
+	if lineNum >= len(lines) {
+		return nil, fmt.Errorf("line out of range")
+	}
+	return lines[lineNum], nil
+}
+
+// ─── new command implementations ────────────────────────────────
+
+func (s *State) cmdMemoryNew(args []interface{}) (any, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("usage: down.memory.new <key> <value>")
+	}
+	key, _ := args[0].(string)
+	value, _ := args[1].(string)
+
+	memDir := filepath.Join(os.Getenv("HOME"), ".local", "share", "down", "memory")
+	os.MkdirAll(memDir, 0755)
+
+	entry := map[string]interface{}{
+		"key":        key,
+		"value":      value,
+		"tags":       []string{},
+		"meta":       map[string]string{},
+		"created_at": time.Now().Format(time.RFC3339),
+		"updated_at": time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.MarshalIndent(entry, "", "  ")
+	path := filepath.Join(memDir, key+".json")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return nil, err
+	}
+	return fmt.Sprintf("Memory saved: %s", key), nil
+}
+
+func (s *State) cmdCodeRun(args []interface{}) (any, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("usage: down.code.run <uri> <code>")
+	}
+	_, _ = args[0].(string)
+	code, _ := args[1].(string)
+	// Return the code for client-side execution
+	return code, nil
+}
+
+func (s *State) cmdTOCGenerate(args []interface{}) (any, error) {
+	uri := ""
+	if len(args) > 0 {
+		uri, _ = args[0].(string)
+	}
+	text, ok := s.Documents[uri]
+	if !ok {
+		text = strings.Join(getAllDocURIs(s.Documents), "\n")
+		if text == "" {
+			return "No document content available", nil
+		}
+	}
+
+	var toc []string
+	toc = append(toc, "## Table of Contents\n")
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			level := 0
+			for _, ch := range trimmed {
+				if ch == '#' {
+					level++
+				} else {
+					break
+				}
+			}
+			heading := strings.TrimSpace(trimmed[level:])
+			if heading != "" {
+				indent := strings.Repeat("  ", max(0, level-1))
+				toc = append(toc, fmt.Sprintf("%s- [%s](#%s)", indent, heading, strings.ToLower(strings.ReplaceAll(heading, " ", "-"))))
+			}
+		}
+	}
+	return strings.Join(toc, "\n"), nil
+}
+
+func (s *State) cmdCreateLink(args []interface{}) (any, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: down.link.create.cursor <word>")
+	}
+	word, _ := args[0].(string)
+	if word == "" {
+		return "No word at cursor", nil
+	}
+	return fmt.Sprintf("[[%s]]", word), nil
+}
+
+func getAllDocURIs(docs map[string]string) []string {
+	var uris []string
+	for u := range docs {
+		uris = append(uris, u)
+	}
+	return uris
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

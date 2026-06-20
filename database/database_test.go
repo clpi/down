@@ -82,3 +82,31 @@ func TestResolveComputedRollupSameDB(t *testing.T) {
 		t.Fatalf("rollup=%q", out[0]["done_count"])
 	}
 }
+
+func TestResolveComputedRollupCrossDB(t *testing.T) {
+	tasks := Parse(sampleDB)
+	tasks.Path = "/ws/Tasks.md"
+
+	people := Parse(rollupDB)
+	people.Path = "/ws/People.md"
+
+	ctx := &WorkspaceContext{
+		Root: "/ws",
+		All:  []*Database{tasks, people},
+		byTitle: map[string]*Database{
+			"tasks":  tasks,
+			"people": people,
+		},
+		byBase: map[string]*Database{
+			"tasks":  tasks,
+			"people": people,
+		},
+		byRelPath: map[string]*Database{},
+	}
+
+	out := ResolveComputed(people, people.Rows, ctx)
+	if out[0]["open_tasks"] != "1" {
+		t.Fatalf("rollup=%q want 1", out[0]["open_tasks"])
+	}
+}
+

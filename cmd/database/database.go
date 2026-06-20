@@ -1,6 +1,7 @@
 package database
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 )
 
 var (
+	dbJSON   bool
 	dbRoot   string
 	dbOutput string
 	dbViewType string
@@ -39,31 +41,30 @@ var dbList = cobra.Command{
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		root := resolvedDBRoot()
-		dbs, err := db.ScanWorkspace(root)
+		query := ""
+		if len(args) > 0 {
+			query = args[0]
+		}
+		entries, err := db.ListEntries(root, query)
 		if err != nil {
 			fail(err)
 		}
-		query := ""
-		if len(args) > 0 {
-			query = strings.ToLower(args[0])
+		if dbJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(entries); err != nil {
+				fail(err)
+			}
+			return
 		}
-		if len(dbs) == 0 {
+		if len(entries) == 0 {
 			fmt.Printf("No databases found in %s\n", root)
 			return
 		}
-		count := 0
-		for _, d := range dbs {
-			rel, _ := filepath.Rel(root, d.Path)
-			if query != "" {
-				blob := strings.ToLower(d.Title + " " + rel)
-				if !strings.Contains(blob, query) {
-					continue
-				}
-			}
-			fmt.Printf("%-28s %3d rows  %s\n", d.Title, len(d.Rows), rel)
-			count++
+		for _, e := range entries {
+			fmt.Printf("%-28s %3d rows  %s\n", e.Title, e.Rows, e.Rel)
 		}
-		fmt.Printf("\n%d database(s) in %s\n", count, root)
+		fmt.Printf("\n%d database(s) in %s\n", len(entries), root)
 	},
 }
 
@@ -338,6 +339,7 @@ func fail(err error) {
 
 func init() {
 	Database.PersistentFlags().StringVarP(&dbRoot, "root", "r", ".", "Workspace root")
+	dbList.Flags().BoolVar(&dbJSON, "json", false, "Emit JSON array of databases")
 	for _, c := range []*cobra.Command{&dbList, &dbShow, &dbQuery, &dbView, &dbCreate, &dbAddRow, &dbUpdateRow, &dbExport} {
 		Database.AddCommand(c)
 	}
