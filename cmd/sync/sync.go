@@ -4,12 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/clpi/down/cmd/add"
+	"github.com/clpi/down/cmd/vector"
 	"github.com/spf13/cobra"
 )
 
@@ -242,7 +243,8 @@ Runs sub-syncs in order: data → knowledge → memory → context → vector �
 
 			// Vector: mark for re-index on changed files
 			if result.Added+result.Modified > 0 {
-				fmt.Printf("  vector/    %d files pending re-index\n", result.Added+result.Modified)
+				vCount := updateVectorStore(downDir, root, getAddedModified(downDir, root))
+				fmt.Printf("  vector/    %d embeddings updated\n", vCount)
 			} else {
 				fmt.Println("  vector/    up to date")
 			}
@@ -339,8 +341,80 @@ var syncWeb = cobra.Command{
 		if count > 0 {
 			fmt.Printf("web/: %d URL sources refreshed\n", count)
 		} else {
-			fmt.Println("web/: no URL sources found")
+			fmt.Println("web/: no URL sources to refresh")
 		}
+	},
+}
+
+// getAddedModified returns lists of added and modified markdown file paths
+func getAddedModified(downDir, root string) (added, modified []string) {
+	idx := loadIndex(downDir)
+	for _, f := range syncWorkspace(downDir, root).Files {
+		f = strings.TrimPrefix(f, "+ ")
+		f = strings.TrimPrefix(f, "~ ")
+		f = strings.TrimPrefix(f, "- ")
+		fullPath := filepath.Join(root, f)
+		if strings.HasSuffix(strings.ToLower(f), ".md") {
+			if strings.HasPrefix(syncWorkspace(downDir, root).Files[0], "+ ") {
+				added = append(added, f)
+			} else if strings.HasPrefix(syncWorkspace(downDir, root).Files[0], "~ ") {
+				modified = append(modified, f)
+			}
+		}
+		_ = fullPath
+	}
+	// Simplified: just return paths from the result
+	return
+}
+
+// syncAddURL fetches a URL and stores it in .down/data/ as markdown.
+// This is a dedicated sub-command for webpage ingestion.
+var syncAdd = cobra.Command{
+	Use:   "add <url>",
+	Short: "Fetch URL and store as markdown in .down/data/",
+	Long: `Fetch a webpage and convert to markdown, storing in .down/data/.
+
+This command:
+  1. Fetches the URL content
+  2. Extracts Open Graph metadata (title, description)
+  3. Converts HTML to clean markdown format
+  4. Adds frontmatter with source URL and fetch date
+  5. Saves to .down/data/ with a sanitized filename
+
+Useful for archiving online documentation, articles, or API references.`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		url := args[0]
+		root, _ := os.Getwd()
+		downDir := findDownDir(root)
+		if downDir == "" {
+			fmt.Fprintln(os.Stderr, "No .down/ directory found. Run `down init` first.")
+			os.Exit(1)
+		}
+		dataDir := filepath.Join(downDir, "data")
+		os.MkdirAll(dataDir, 0755)
+
+		// Fetch and convert using add package
+		content, err := add.FetchURL(url)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching URL: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Generate filename from URL
+		domain := strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+		filename := strings.ReplaceAll(domain, ".", "_") + ".md"
+		// Keep URL path structure
+		if strings.Contains(filename, "/") {
+			filename = strings.ReplaceAll(filename, "/", "_")
+		}
+
+		outPath := filepath.Join(dataDir, filename)
+		if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Added: %s\n  -> %s\n", url, outPath)
 	},
 }
 
@@ -349,6 +423,7 @@ func init() {
 	Sync.Flags().BoolVarP(&syncVerbose, "verbose", "v", false, "Show detailed output")
 	Sync.Flags().BoolVar(&syncDryRun, "dry-run", false, "Show what would change without modifying")
 
+	Sync.AddCommand(&syncAdd)
 	Sync.AddCommand(&syncData)
 	Sync.AddCommand(&syncKnowledge)
 	Sync.AddCommand(&syncMemory)

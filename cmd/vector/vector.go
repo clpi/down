@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/clpi/down/lsp/knowledge"
 	"github.com/spf13/cobra"
 )
 
@@ -17,6 +19,8 @@ var (
 	vecQuery  string
 	vecLimit  int
 	vecSource string
+	vecAll    bool
+	vecKBPath string
 )
 
 type VectorEntry struct {
@@ -249,10 +253,163 @@ var vectorDelete = cobra.Command{
 	},
 }
 
+// indexKnowledgeGraph embeddings for entities in the knowledge graph
+var vectorIndexKB = cobra.Command{
+	Use:   "index-kb",
+	Short: "Generate embeddings for knowledge graph entities",
+	Long: `Index all entities from the knowledge graph as vector embeddings.
+
+This enables semantic search over people, concepts, tags, and other
+extracted entities in the workspace.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		vDir := workspaceVectorDir()
+
+		// Find knowledge graph path
+		kbPath := vecKBPath
+		if kbPath == "" {
+			home, _ := os.UserHomeDir()
+			kbPath = filepath.Join(home, ".down", "knowledge.json")
+		}
+
+		data, err := os.ReadFile(kbPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "No knowledge graph found at %s\n", kbPath)
+			os.Exit(1)
+		}
+
+		g := knowledge.NewGraph(kbPath)
+		if err := json.Unmarshal(data, g); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing knowledge graph: %v\n", err)
+			os.Exit(1)
+		}
+
+		dim := vecDim
+		if dim == 0 { dim = 384 }
+
+		count := 0
+		for _, ent := range g.Entities {
+			vec := embedLocal(ent.Name, dim)
+			entry := VectorEntry{
+				ID: fmt.Sprintf("entity_%s", ent.ID),
+				Vector: vec,
+				Text: ent.Name,
+				Source: vecKBPath,
+				Created: time.Now().Format("2006-01-02 15:04"),
+			}
+			if err := saveEntry(vDir, entry); err == nil {
+				count++
+			}
+		}
+		fmt.Printf("Indexed %d knowledge graph entities as embeddings\n", count)
+	},
+}
+
+// indexAllFiles creates embeddings for all markdown files in the workspace
+var vectorIndexAll = cobra.Command{
+	Use:   "index-all [directory]",
+	Short: "Generate embeddings for all markdown files in workspace",
+	Run: func(cmd *cobra.Command, args []string) {
+		root, _ := os.Getwd()
+		if len(args) > 0 {
+			root = args[0]
+		}
+		vDir := workspaceVectorDir()
+
+		dim := vecDim
+		if dim == 0 { dim = 384 }
+
+		count := 0
+		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(strings.ToLower(path), ".md") {
+				return nil
+			}
+			if strings.HasPrefix(filepath.Base(path), ".") {
+				return nil
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			text := string(data)
+			vec := embedLocal(text, dim)
+			rel, _ := filepath.Rel(root, path)
+			entry := VectorEntry{
+				ID: fmt.Sprintf("file_%s", rel),
+				Vector: vec,
+				Text: text,
+				Source: rel,
+				Created: time.Now().Format(time.RFC3339),
+			}
+			saveEntry(vDir, entry)
+			count++
+			return nil
+		})
+		fmt.Printf("Indexed %d markdown files as embeddings\n", count)
+	},
+}
+
+// updateVectorStore updates embeddings for changed/added files
+func updateVectorStore(downDir, root string, added, modified []string) int {
+	vDir := filepath.Join(downDir, "vector")
+	os.MkdirAll(vDir, 0755)
+
+	dim := vecDim
+	if dim == 0 { dim = 384 }
+
+	count := 0
+	for _, path := range append(added, modified...) {
+		vec := embedLocalFile(filepath.Join(root, path), dim)
+		if vec == nil {
+			continue
+		}
+		entry := VectorEntry{
+			ID: fmt.Sprintf("file_%s", strings.ReplaceAll(path, "/", "_")),
+			Vector: vec,
+			Text: truncateText(loadTextFromFile(filepath.Join(root, path)), 500),
+			Source: path,
+			Created: time.Now().Format(time.RFC3339),
+		}
+		saveEntry(vDir, entry)
+		count++
+	}
+	return count
+}
+
+func embedLocalFile(path string, dim int) []float64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return embedLocal(string(data), dim)
+}
+
+func loadTextFromFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func truncateText(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 func init() {
 	vectorIndex.Flags().IntVarP(&vecDim, "dim", "d", 384, "Vector dimension")
 	Vector.AddCommand(&vectorIndex)
 	Vector.AddCommand(&vectorSearch)
 	Vector.AddCommand(&vectorList)
 	Vector.AddCommand(&vectorDelete)
+	Vector.AddCommand(&vectorIndexKB)
+	Vector.AddCommand(&vectorIndexAll)
+	vectorIndexKB.Flags().StringVar(&vecKBPath, "knowledge", "", "Path to knowledge.json")
+	vectorIndexAll.Flags().IntVarP(&vecDim, "dim", "d", 384, "Vector dimension")
 }

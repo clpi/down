@@ -1,23 +1,30 @@
 package context
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/clpi/down/cmd/compact"
 	"github.com/clpi/down/cmd/memory"
+	"github.com/clpi/down/lsp/knowledge"
 	"github.com/spf13/cobra"
 )
 
 var (
-	ctxOutput  string
-	ctxFormat  string
-	ctxNoCompact bool
-	ctxNoMemory  bool
-	ctxPrompt    string
+	ctxOutput     string
+	ctxFormat     string
+	ctxNoCompact  bool
+	ctxNoMemory   bool
+	ctxNoVectors  bool
+	ctxPrompt     string
+	ctxVecQuery   string
+	ctxVecLimit   int
 )
 
 type ContextData struct {
@@ -204,6 +211,66 @@ comprehensive context file ready for AI consumption.`,
 			fmt.Fprintf(&b, "## Task\n\n<!-- Describe what you want the AI to do -->\n\n")
 		}
 
+		// Add vector similarity search results if query provided
+		if !ctxNoVectors && ctxVecQuery != "" {
+			fmt.Fprintf(&b, "## Vector Search Results (%s)\n\n", ctxVecQuery)
+			// Try to load vector embeddings
+			vDir := findVectorDir(root)
+			if vDir != "" {
+				entries, _ := os.ReadDir(vDir)
+				var vecs []vectorEntry
+				for _, e := range entries {
+					if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+						continue
+					}
+					data, _ := os.ReadFile(filepath.Join(vDir, e.Name()))
+					var ve vectorEntry
+					if json.Unmarshal(data, &ve) == nil && len(ve.Vector) > 0 {
+						vecs = append(vecs, ve)
+					}
+				}
+				if len(vecs) > 0 {
+					dim := len(vecs[0].Vector)
+					qvec := embedQuery(ctxVecQuery, dim)
+					var results []similarityResult
+					for _, ve := range vecs {
+						score := cosineSim(qvec, ve.Vector)
+						if score > 0.1 {
+							results = append(results, similarityResult{entry: ve, score: score})
+						}
+					}
+					sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
+					limit := ctxVecLimit
+					if limit <= 0 || limit > len(results) {
+						limit = len(results)
+						if limit > 10 {
+							limit = 10
+						}
+					}
+					for i := 0; i < limit && i < len(results); i++ {
+						r := results[i]
+						preview := r.entry.Text
+						if len(preview) > 200 {
+							preview = preview[:200] + "..."
+						}
+						fmt.Fprintf(&b, "- (%.2f) **%s**: %s\n", r.score, r.entry.Source, preview)
+					}
+				}
+			}
+			fmt.Fprintf(&b, "\n")
+		}
+
+		// Add knowledge graph summary
+		fmt.Fprintf(&b, "## Knowledge Graph\n\n")
+		kbPath := filepath.Join(root, ".down", "knowledge.json")
+		if _, err := os.Stat(kbPath); err == nil {
+			data, _ := os.ReadFile(kbPath)
+			var g knowledge.Graph
+			if json.Unmarshal(data, &g) == nil {
+				fmt.Fprintf(&b, "%s\n\n", g.Summary())
+			}
+		}
+
 		// Output
 		outPath := ctxOutput
 		if outPath == "" {
@@ -223,5 +290,138 @@ func init() {
 	Context.Flags().StringVarP(&ctxFormat, "format", "f", "markdown", "Output format: markdown")
 	Context.Flags().BoolVar(&ctxNoCompact, "no-compact", false, "Omit compacted codebase")
 	Context.Flags().BoolVar(&ctxNoMemory, "no-memory", false, "Omit memory entries")
+	Context.Flags().BoolVar(&ctxNoVectors, "no-vectors", false, "Omit vector search results")
+	Context.Flags().StringVarP(&ctxVecQuery, "vector-query", "q", "", "Query for vector similarity search")
+	Context.Flags().IntVarP(&ctxVecLimit, "vector-limit", "l", 10, "Max vector search results")
 	Context.Flags().StringVarP(&ctxPrompt, "prompt", "p", "", "Task prompt for the AI")
+}
+
+// Vector search helper types and functions
+
+type vectorEntry struct {
+	ID     string    `json:"id"`
+	Vector []float64 `json:"vector"`
+	Text   string    `json:"text"`
+	Source string    `json:"source"`
+}
+
+type similarityResult struct {
+	entry vectorEntry
+	score float64
+}
+
+func findVectorDir(root string) string {
+	for dir := root; dir != "" && dir != "/" && filepath.Dir(dir) != dir; {
+		vd := filepath.Join(dir, ".down", "vector")
+		if info, err := os.Stat(vd); err == nil && info.IsDir() {
+			return vd
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return filepath.Join(root, ".down", "vector")
+}
+
+// Simple hash-based embedding (shared with vector package)
+func hashWord(word string) int {
+	h := 0
+	for _, c := range word {
+		h = (h*31 + int(c)) % 1000000
+	}
+	return h
+}
+
+func embedQuery(text string, dim int) []float64 {
+	tokens := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_')
+	})
+	vec := make([]float64, dim)
+	for _, token := range tokens {
+		if len(token) < 2 {
+			continue
+		}
+		idx := hashWord(token) % dim
+		vec[idx] += 1.0
+	}
+	// Normalize
+	var norm float64
+	for _, v := range vec {
+		norm += v * v
+	}
+	norm = sqrt(norm)
+	if norm > 0 {
+		for i := range vec {
+			vec[i] /= norm
+		}
+	}
+	return vec
+}
+
+func cosineSim(a, b []float64) float64 {
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+	var dot, na, nb float64
+	for i := 0; i < minLen; i++ {
+		dot += a[i] * b[i]
+		na += a[i] * a[i]
+		nb += b[i] * b[i]
+	}
+	na, nb = math.Sqrt(na), math.Sqrt(nb)
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / (na * nb)
+}
+
+// EmbeddingSimilarity finds similar embeddings and returns formatted results
+// This can be called from knowledge or context packages
+func EmbeddingSimilarity(query string, limit int) []vectorEntry {
+	root, _ := os.Getwd()
+	vDir := findVectorDir(root)
+	entries, _ := os.ReadDir(vDir)
+
+	var vecs []vectorEntry
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, _ := os.ReadFile(filepath.Join(vDir, e.Name()))
+		var ve vectorEntry
+		if json.Unmarshal(data, &ve) == nil && len(ve.Vector) > 0 {
+			vecs = append(vecs, ve)
+		}
+	}
+
+	if len(vecs) == 0 {
+		return nil
+	}
+
+	dim := len(vecs[0].Vector)
+	qvec := embedQuery(query, dim)
+	type result struct {
+		entry vectorEntry
+		score float64
+	}
+	var results []result
+	for _, ve := range vecs {
+		score := cosineSim(qvec, ve.Vector)
+		if score > 0.1 {
+			results = append(results, result{entry: ve, score: score})
+		}
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
+
+	if limit <= 0 || limit > len(results) {
+		limit = len(results)
+	}
+	var out []vectorEntry
+	for i := 0; i < limit; i++ {
+		out = append(out, results[i].entry)
+	}
+	return out
 }

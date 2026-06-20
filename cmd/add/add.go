@@ -50,6 +50,11 @@ func isURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
+// FetchURL fetches a URL and converts HTML to markdown. Exported for use by sync package.
+func FetchURL(url string) (string, error) {
+	return fetchURL(url)
+}
+
 func fetchURL(url string) (string, error) {
 	if !strings.HasPrefix(url, "http") {
 		url = "https://" + url
@@ -64,8 +69,53 @@ func fetchURL(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	text := htmlToMarkdown(string(body))
-	return fmt.Sprintf("# %s\n\n%s\n\n> Fetched: %s", url, text, time.Now().Format("2006-01-02 15:04:05")), nil
+
+	// Extract metadata before conversion
+	title := extractText(string(body), "title")
+	description := ""
+	if descIdx := strings.Index(string(body), "property=\"og:description\""); descIdx >= 0 || strings.Index(string(body), "name=\"description\"") >= 0 {
+		// Simple description extraction
+		html := string(body)
+		if metaStart := strings.Index(html, "<meta"); metaStart >= 0 {
+			content := ""
+			if contentIdx := strings.Index(html[metaStart:], "content=\""); contentIdx > 0 {
+				actualIdx := metaStart + contentIdx + 9
+				endIdx := strings.Index(html[actualIdx:], "\"")
+				if endIdx > 0 {
+					content = html[actualIdx : actualIdx+endIdx]
+				}
+			}
+			if len(content) > 0 && len(content) < 500 {
+				description = content
+			}
+		}
+	}
+
+	text := enhancedHTMLToMarkdown(string(body))
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("---\n"))
+	b.WriteString(fmt.Sprintf("source: %s\n", url))
+	b.WriteString(fmt.Sprintf("date: %s\n", time.Now().Format("2006-01-02 15:04")))
+	if title != "" {
+		b.WriteString(fmt.Sprintf("title: %s\n", title))
+	}
+	b.WriteString("---\n\n")
+
+	if title != "" {
+		b.WriteString(fmt.Sprintf("# %s\n\n", title))
+	} else {
+		b.WriteString(fmt.Sprintf("# %s\n\n", url))
+	}
+
+	if description != "" {
+		b.WriteString(fmt.Sprintf("> %s\n\n", description))
+	}
+
+	b.WriteString(fmt.Sprintf("%s\n\n", text))
+	b.WriteString(fmt.Sprintf("> Fetched: %s\n", time.Now().Format("2006-01-02 15:04:05")))
+
+	return b.String(), nil
 }
 
 func htmlToMarkdown(html string) string {
@@ -305,7 +355,220 @@ func extractAttr(tag, attr string) string {
 		if end < 0 { return "" }
 		return tag[idx : idx+end]
 	}
-	return ""
+	// Handle unquoted attributes
+	end := idx
+	for end < len(tag) && tag[end] != ' ' && tag[end] != '\t' && tag[end] != '>' {
+		end++
+	}
+	return tag[idx:end]
+}
+
+// enhancedHTMLToMarkdown provides improved conversion with better handling of:
+// - Nested inline elements
+// - Code blocks with language detection
+// - Tables
+// - Lists (ordered and unordered)
+// - Proper entity decoding
+func enhancedHTMLToMarkdown(html string) string {
+	// Remove script/style/head/nav/footer first
+	html = removeTags(html, "script")
+	html = removeTags(html, "style")
+	html = removeTags(html, "nav")
+	html = removeTags(html, "footer")
+
+	// Extract title before removing head
+	title := extractText(html, "title")
+
+	// Decode HTML entities
+	html = decodeEntities(html)
+
+	var out strings.Builder
+	inTag := false
+	inPre := false
+	inCode := false
+	inList := false
+
+	i := 0
+	runes := []rune(html)
+	for i < len(runes) {
+		ch := runes[i]
+
+		if ch == '<' {
+			tagEnd := findTagEnd(runes, i)
+			if tagEnd < 0 {
+				inTag = true
+				i++
+				continue
+			}
+			tag := string(runes[i : tagEnd])
+			lower := strings.ToLower(strings.TrimSpace(tag))
+			lower = strings.TrimSuffix(lower, "/")
+
+			// Extract tag name (without attributes)
+			tagName := lower
+			if space := strings.Index(lower, " "); space >= 0 {
+				tagName = lower[:space]
+			}
+
+			switch tagName {
+			case "br", "br/":
+				out.WriteString("\n")
+			case "p", "/p", "div", "/div", "section", "/section", "article", "/article":
+				if !inPre {
+					out.WriteString("\n\n")
+				}
+			case "h1", "/h1":
+				out.WriteString("\n\n# ")
+			case "h2", "/h2":
+				out.WriteString("\n\n## ")
+			case "h3", "/h3":
+				out.WriteString("\n\n### ")
+			case "h4", "/h4":
+				out.WriteString("\n\n#### ")
+			case "h5", "/h5":
+				out.WriteString("\n\n##### ")
+			case "h6", "/h6":
+				out.WriteString("\n\n###### ")
+			case "li", "/li":
+				if !inList {
+					out.WriteString("\n- ")
+					inList = true
+				} else {
+					out.WriteString("\n  - ")
+				}
+			case "/ul", "/ol":
+				inList = false
+				out.WriteString("\n")
+			case "ul", "ol":
+				out.WriteString("\n")
+			case "hr", "hr/":
+				out.WriteString("\n\n---\n\n")
+			case "blockquote":
+				out.WriteString("\n\n> ")
+			case "/blockquote":
+				out.WriteString("\n\n")
+			case "pre":
+				inPre = true
+				// Check for language class
+				lang := ""
+				if classIdx := strings.Index(lower, "class="); classIdx >= 0 {
+					lang = extractAttr(tag, "class")
+					lang = strings.TrimPrefix(lang, "language-")
+				}
+				out.WriteString("\n\n```" + lang + "\n")
+			case "/pre":
+				inPre = false
+				out.WriteString("\n```\n\n")
+			case "code":
+				// Inline code
+				out.WriteString("`")
+				inCode = true
+			case "/code":
+				inCode = false
+				out.WriteString("`")
+			case "a":
+				href := extractAttr(tag, "href")
+				if href != "" {
+					// Check if it's a mailto link
+					if strings.HasPrefix(href, "mailto:") {
+						out.WriteString(fmt.Sprintf("<%s>", strings.TrimPrefix(href, "mailto:")))
+					} else {
+						out.WriteString("[")
+					}
+				}
+			case "/a":
+				out.WriteString("]")
+			case "img":
+				src := extractAttr(tag, "src")
+				alt := extractAttr(tag, "alt")
+				if alt == "" { alt = "image" }
+				if src != "" {
+					out.WriteString(fmt.Sprintf("![%s](%s)", alt, src))
+				}
+			case "strong":
+				out.WriteString("**")
+			case "/strong":
+				out.WriteString("**")
+			case "b":
+				out.WriteString("**")
+			case "/b":
+				out.WriteString("**")
+			case "em":
+				out.WriteString("*")
+			case "/em":
+				out.WriteString("*")
+			case "i":
+				out.WriteString("*")
+			case "/i":
+				out.WriteString("*")
+			case "/span", "/strong", "/em", "/b", "/i", "/u":
+				// No-op for closing tags
+			case "span":
+				// Span can contain inline elements, just continue
+			}
+
+			i = tagEnd + 1
+			if i < len(runes) && runes[i] == '>' {
+				i++
+			}
+			inTag = false
+			continue
+		}
+
+		if !inTag {
+			if ch == '\n' || ch == '\r' {
+				if inPre {
+					out.WriteRune(ch)
+				}
+				i++
+				continue
+			}
+			out.WriteRune(ch)
+		}
+		i++
+	}
+
+	result := out.String()
+
+	// Prepend title if available
+	if title != "" {
+		result = fmt.Sprintf("# %s\n\n%s", title, result)
+	}
+
+	// Collapse excess whitespace
+	lines := strings.Split(result, "\n")
+	var cleaned []string
+	blankCount := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			blankCount++
+			if blankCount <= 2 {
+				cleaned = append(cleaned, "")
+			}
+		} else {
+			blankCount = 0
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+}
+
+// decodeEntities converts common HTML entities to their character equivalents
+func decodeEntities(html string) string {
+	entities := map[string]string{
+		"&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+		"&quot;": "\"", "&apos;": "'", "&#39;": "'", "&#34;": "\"",
+		"&mdash;": "—", "&ndash;": "–", "&hellip;": "...",
+		"&rsquo;": "'", "&lsquo;": "'", "&rdquo;": "\"", "&ldquo;": "\"",
+		"&copy;": "©", "&reg;": "®", "&trade;": "™",
+		"&euro;": "€", "&pound;": "£", "&yen;": "¥", "&cent;": "¢",
+		"&deg;": "°", "&plusmn;": "±", "&times;": "×", "&divide;": "÷",
+	}
+	for entity, char := range entities {
+		html = strings.ReplaceAll(html, entity, char)
+	}
+	return html
 }
 
 func findDataDir(root string) string {
