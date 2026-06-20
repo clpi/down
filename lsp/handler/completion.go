@@ -45,6 +45,28 @@ func (s *State) Completion(
 		return items, nil
 	}
 
+	// Detect frontmatter field context
+	fmKey, fmQuery := s.detectFrontmatterField(p)
+	if fmKey != nil {
+		if *fmKey != "" {
+			items = entries.FrontmatterValueCompletions(items, *fmKey, fmQuery)
+		} else {
+			items = entries.FrontmatterFieldCompletions(items, fmQuery)
+		}
+		return items, nil
+	}
+
+	// Detect header anchor context: [text](#...
+	anchorTrigger, anchorQuery := entries.DetectHeaderAnchorTrigger(
+		s.Documents[string(p.TextDocument.URI)],
+		int(p.Position.Line),
+		int(p.Position.Character),
+	)
+	if anchorTrigger {
+		items = entries.HeaderAnchorCompletions(items, s.Documents[string(p.TextDocument.URI)], anchorQuery)
+		return items, nil
+	}
+
 	items = entries.SnippetCompletions(items)
 	items = entries.EmojiCompletions(items)
 	items = entries.FileCompletions(items)
@@ -374,4 +396,71 @@ func (s *State) aiCompletions(items []protocol.CompletionItem, p *protocol.Compl
 
 func (s *State) ItemResolve(c *glsp.Context, p *protocol.CompletionItem) (*protocol.CompletionItem, error) {
 	return p, nil
+}
+
+// detectFrontmatterField checks if cursor is inside YAML frontmatter and
+// returns (key, query). If cursor is on a key line, key is "".
+// If cursor is on a value line after a known key, key is the key name.
+func (s *State) detectFrontmatterField(p *protocol.CompletionParams) (*string, string) {
+	uri := string(p.TextDocument.URI)
+	doc, ok := s.Documents[uri]
+	if !ok {
+		return nil, ""
+	}
+
+	lines := strings.Split(doc, "\n")
+	lineIdx := int(p.Position.Line)
+	if lineIdx < 1 || lineIdx >= len(lines) {
+		return nil, ""
+	}
+
+	// Check if we're in frontmatter: first line must be ---
+	if strings.TrimSpace(lines[0]) != "---" {
+		return nil, ""
+	}
+
+	// Find the end of frontmatter
+	endFM := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			endFM = i
+			break
+		}
+	}
+	if endFM == -1 || lineIdx >= endFM {
+		return nil, ""
+	}
+
+	curr := lines[lineIdx]
+	col := int(p.Position.Character)
+	if col > len(curr) {
+		col = len(curr)
+	}
+	prefix := curr[:col]
+
+	// Check for `key: value` pattern
+	colonIdx := strings.Index(curr, ":")
+	if colonIdx == -1 {
+		// No colon yet — completing a field name
+		query := strings.TrimSpace(prefix)
+		empty := ""
+		return &empty, query
+	}
+
+	// Colon exists — check if cursor is right after it (completing value)
+	if col > colonIdx {
+		key := strings.TrimSpace(curr[:colonIdx])
+		valuePrefix := strings.TrimSpace(curr[colonIdx+1:])
+		if col > colonIdx+1 {
+			query := strings.TrimSpace(curr[colonIdx+1 : col])
+			return &key, query
+		}
+		_ = valuePrefix
+		return &key, ""
+	}
+
+	// Cursor is before or at colon — completing field name
+	query := strings.TrimSpace(prefix)
+	empty := ""
+	return &empty, query
 }
