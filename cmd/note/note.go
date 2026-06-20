@@ -41,9 +41,16 @@ func openNote(t time.Time, label string) {
 	root := wsutil.ResolveRoot(noteRoot)
 	tmpl := noteTemplate
 	if tmpl == "" {
-		candidate := filepath.Join(root, "note", "day.md")
-		if _, err := os.Stat(candidate); err == nil {
-			tmpl = candidate
+		// Try template locations in priority order
+		for _, candidate := range []string{
+			filepath.Join(root, ".down", "templates", "daily.md"),
+			filepath.Join(root, "note", "day.md"),
+			filepath.Join(root, "templates", "daily.md"),
+		} {
+			if _, err := os.Stat(candidate); err == nil {
+				tmpl = candidate
+				break
+			}
 		}
 	}
 	path, err := wsutil.EnsureNoteAt(root, t, noteStrategy, tmpl)
