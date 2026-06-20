@@ -161,7 +161,7 @@ var vectorIndex = cobra.Command{
 		entry := VectorEntry{
 			ID: fmt.Sprintf("vec_%d", len(loadEntries(vDir))+1),
 			Vector: vec, Text: text, Source: source,
-			Created: fmt.Sprintf("%d", os.Getenv("EPOCHSECONDS")),
+			Created: fmt.Sprintf("%d", time.Now().Unix()),
 		}
 		if err := saveEntry(vDir, entry); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)

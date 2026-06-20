@@ -30,6 +30,7 @@ import (
 	"github.com/clpi/down/cmd/shell"
 	"github.com/clpi/down/cmd/skills"
 	"github.com/clpi/down/cmd/snippet"
+	"github.com/clpi/down/cmd/status"
 	"github.com/clpi/down/cmd/sync"
 	"github.com/clpi/down/cmd/tag"
 	"github.com/clpi/down/cmd/template"
@@ -72,6 +73,7 @@ func Configure() {
 	Down.AddCommand(&delete.Delete)
 	Down.AddCommand(&export.Export)
 	Down.AddCommand(&sync.Sync)
+	Down.AddCommand(&status.Status)
 	Down.AddCommand(&snippet.Snippet)
 	Down.AddCommand(&template.Template)
 	Down.AddCommand(&profile.Profile)
