@@ -11,6 +11,7 @@ import (
 	downctx "github.com/clpi/down/cmd/context"
 	dbcmd "github.com/clpi/down/cmd/database"
 	"github.com/clpi/down/cmd/delete"
+	"github.com/clpi/down/cmd/doctor"
 	"github.com/clpi/down/cmd/export"
 	"github.com/clpi/down/cmd/find"
 	"github.com/clpi/down/cmd/generate"
@@ -73,6 +74,7 @@ func Configure() {
 	Down.AddCommand(&shell.Shell)
 	Down.AddCommand(&serve.Serve)
 	Down.AddCommand(&delete.Delete)
+	Down.AddCommand(&doctor.Doctor)
 	Down.AddCommand(&export.Export)
 	Down.AddCommand(&sync.Sync)
 	Down.AddCommand(&similar.Similar)

@@ -27,7 +27,7 @@ func initWorkspace(root, name string, wiki bool) {
 	downDir := filepath.Join(root, ".down")
 	os.MkdirAll(downDir, 0755)
 
-	for _, sub := range []string{"data", "knowledge", "memory", "context", "vector", "git"} {
+	for _, sub := range []string{"data", "knowledge", "memory", "context", "vector", "templates", "git"} {
 		os.MkdirAll(filepath.Join(downDir, sub), 0755)
 	}
 
@@ -37,14 +37,17 @@ func initWorkspace(root, name string, wiki bool) {
 		os.WriteFile(ignorePath, []byte("# Files ignored by down compact/add\n.git/\n.svn/\nnode_modules/\n"), 0644)
 	}
 
-	// Create index.md
+	// Create index.md (in root for wiki mode, .down/ for codebase mode)
 	indexPath := filepath.Join(downDir, "index.md")
+	if wiki {
+		indexPath = filepath.Join(root, "index.md")
+	}
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
 		desc := "codebase"
 		content := "# Index\n\nWelcome to your down workspace.\n\n"
 		if wiki {
 			desc = "wiki"
-			content = "# " + name + "\n\n> A knowledge wiki workspace.\n\n## Getting Started\n\n- Use `down add` to ingest content\n- Use `down skills` for project context\n- Use `down sync` to keep data fresh\n"
+			content = "# " + name + "\n\n> A knowledge wiki workspace.\n\n## Getting Started\n\n- Create notes with `down note today`\n- Use `down template apply daily` to start journaling\n- Use `down sync` to index everything\n- Use `down sync skills` for AI context\n"
 		}
 		os.WriteFile(indexPath, []byte(content), 0644)
 		fmt.Printf("  Created index.md (%s mode)\n", desc)
